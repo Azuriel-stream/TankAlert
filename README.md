@@ -18,6 +18,7 @@ A lightweight, configurable addon for the Vanilla (1.12) client that automatical
 * Sunder Armor (Miss, Dodge, Parry)
 * Shield Slam (Miss, Dodge, Parry)
 * Revenge (Miss, Dodge, Parry)
+* **Mocking Blow (Miss, Dodge, Parry)** (NEW in v1.3)
 
 ## Slash Commands
 
@@ -32,13 +33,13 @@ All settings are controlled via the `/ta` command.
 * `/ta force [auto | party | raid | say]`
     Overrides the channel logic. For example, `/ta force party` will make all announcements go to party chat, even if you are in a raid. Use `/ta force auto` to return to normal.
 
-* `/ta toggle [taunt | sunder | slam | revenge]`
+* `/ta toggle [taunt | sunder | shieldslam | revenge | mocking]`
     Toggles announcements for a specific ability. For example, `/ta toggle sunder` will stop announcing failed Sunder Armors.
 
 ## Installation
 
-1.  Go to the [Releases page](https://github.com/Azuriel-stream/TankAlert/releases) of this repository.
-2.  Download the latest `.zip` file.
+1.  Go to the [Releases page](https://github.com/YOUR-USERNAME/TankAlert/releases) of this repository.
+2.  Download the latest `.zip` file for the version you want (e.g., `TankAlert-v1.3.zip`).
 3.  Extract the folder inside the `.zip` file.
 4.  Rename the folder inside to **`TankAlert`** (if it isn't already).
 5.  Place the `TankAlert` folder into your `World of Warcraft\Interface\AddOns\` directory.
