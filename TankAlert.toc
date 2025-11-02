@@ -1,4 +1,5 @@
 ## Interface: 11200
 ## Title: TankAlert
 ## Notes: Announces failed tanking abilities (Taunt, Sunder, etc.) to party/raid.
+## SavedVariables: TankAlert_Settings
 TankAlert.lua
