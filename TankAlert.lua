@@ -2,7 +2,6 @@
 local tankAlert_Frame = CreateFrame("Frame")
 
 -- --- Helper Function: Raid Assist (v1.1) ---
--- This function checks if the player is a raid leader or assist
 function TankAlert_IsRaidAssist()
     if (GetNumRaidMembers() == 0) then
         return false
@@ -21,25 +20,24 @@ function TankAlert_IsRaidAssist()
     return false
 end
 
--- --- Helper Function: Raid Icon (v1.1) ---
--- This function converts an icon index (1-8) into a chat string
-function TankAlert_GetRaidIcon(iconIndex)
+-- --- Helper Function: Raid Icon Name (v1.1) ---
+function TankAlert_GetRaidIconName(iconIndex)
     if iconIndex == 1 then
-        return "{Star}"
+        return "|cffFFFF00[Star]|r" -- Yellow
     elseif iconIndex == 2 then
-        return "{Circle}"
+        return "|cffFFA500[Circle]|r" -- Orange
     elseif iconIndex == 3 then
-        return "{Diamond}"
+        return "|cffC800FF[Diamond]|r" -- Purple
     elseif iconIndex == 4 then
-        return "{Triangle}"
+        return "|cff00FF00[Triangle]|r" -- Green
     elseif iconIndex == 5 then
-        return "{Moon}"
+        return "|cffFFFFFF[Moon]|r" -- White
     elseif iconIndex == 6 then
-        return "{Square}"
+        return "|cff0070FF[Square]|r" -- Blue
     elseif iconIndex == 7 then
-        return "{Cross}"
+        return "|cffFF0000[Cross]|r" -- Red
     elseif iconIndex == 8 then
-        return "{Skull}"
+        return "|cffFFFFFF[Skull]|r" -- White
     else
         return ""
     end
@@ -55,8 +53,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r TankAlert is now active.")
         tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
     end
-
-    local announceMsg = nil
     
     if event == "CHAT_MSG_SPELL_SELF_DAMAGE" then
         local msg = arg1
@@ -64,12 +60,10 @@ tankAlert_Frame:SetScript("OnEvent", function()
         local targetName = nil
 
         if (msg) then
-            -- --- Taunt ---
+            -- (Parsing logic is the same)
             if (string.find(msg, "Taunt") and string.find(msg, "resisted")) then
                 abilityName = "Taunt"
                 _, _, targetName = string.find(msg, "resisted by (.+)")
-            
-            -- --- Sunder Armor ---
             elseif (string.find(msg, "Sunder Armor") and string.find(msg, "dodged")) then
                 abilityName = "Sunder Armor"
                 _, _, targetName = string.find(msg, "dodged by (.+)")
@@ -79,8 +73,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
             elseif (string.find(msg, "Sunder Armor") and string.find(msg, "missed")) then
                 abilityName = "Sunder Armor"
                 _, _, targetName = string.find(msg, "missed (.+)")
-                
-            -- --- Shield Slam ---
             elseif (string.find(msg, "Shield Slam") and string.find(msg, "dodged")) then
                 abilityName = "Shield Slam"
                 _, _, targetName = string.find(msg, "dodged by (.+)")
@@ -90,8 +82,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
             elseif (string.find(msg, "Shield Slam") and string.find(msg, "missed")) then
                 abilityName = "Shield Slam"
                 _, _, targetName = string.find(msg, "missed (.+)")
-
-            -- --- Revenge ---
             elseif (string.find(msg, "Revenge") and string.find(msg, "dodged")) then
                 abilityName = "Revenge"
                 _, _, targetName = string.find(msg, "dodged by (.+)")
@@ -104,49 +94,58 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
 
-        -- --- MESSAGE BUILDER ---
-        if (abilityName and targetName) then
+        -- --- UPDATED MESSAGE BUILDER (v1.1) ---
+        if (abilityName) then
             
-            -- Sanitize the targetName to remove trailing punctuation
-            if (targetName) then
-                targetName = string.gsub(targetName, "%p$", "")
-            end
-            
-            local raidIcon = ""
-            -- Check if your current target's name matches the name from the log
-            if (UnitName("target") == targetName) then
-                local iconIndex = GetRaidTargetIndex("target")
-                raidIcon = TankAlert_GetRaidIcon(iconIndex)
-                -- Add a space if the icon exists
-                if (raidIcon ~= "") then
-                    raidIcon = raidIcon .. " "
-                end
-            end
-            
-            -- Build the final message
-            announceMsg = UnitName("player") .. "'s " .. abilityName .. " FAILED on " .. raidIcon .. targetName .. ". Watch threat!"
-            
-        elseif (abilityName) then
-            -- Failsafe in case parsing fails
-            announceMsg = UnitName("player") .. "'s " .. abilityName .. " FAILED. Watch threat!"
-        end
-    end
-    
-    -- --- ANNOUNCEMENT LOGIC ---
-    if (announceMsg) then
-        local channel = "SAY" -- Default for solo
+            local messageBody = ""
+            local targetInfo = "" -- This will hold EITHER the icon OR the name
 
-        if (GetNumRaidMembers() > 0) then
-            if (TankAlert_IsRaidAssist()) then
-                channel = "RAID_WARNING"
+            if (targetName) then
+                -- Sanitize the targetName
+                targetName = string.gsub(targetName, "%p$", "")
+                
+                local raidIconText = ""
+                -- Check if the failed target is your current target
+                if (UnitName("target") == targetName) then
+                    local iconIndex = GetRaidTargetIndex("target")
+                    raidIconText = TankAlert_GetRaidIconName(iconIndex)
+                end
+                
+                -- --- NEW LOGIC ---
+                if (raidIconText ~= "") then
+                    -- If we have an icon, use it
+                    targetInfo = raidIconText
+                else
+                    -- If we have NO icon, use the target's name
+                    targetInfo = targetName
+                end
+                -- --- END NEW LOGIC ---
+
+                messageBody = abilityName .. " FAILED on " .. targetInfo .. ". Watch threat!"
+            
             else
-                channel = "RAID"
+                -- Failsafe (no target name parsed at all)
+                messageBody = abilityName .. " FAILED. Watch threat!"
             end
-        elseif (GetNumPartyMembers() > 0) then
-            channel = "PARTY"
+
+            -- 1. Determine Channel
+            local channel = "SAY"
+            local messagePrefix = "" 
+            
+            if (GetNumRaidMembers() > 0) then
+                if (TankAlert_IsRaidAssist()) then
+                    channel = "RAID_WARNING"
+                    messagePrefix = UnitName("player") .. "'s "
+                else
+                    channel = "RAID"
+                end
+            elseif (GetNumPartyMembers() > 0) then
+                channel = "PARTY"
+            end
+            
+            -- 2. Send the message
+            SendChatMessage(messagePrefix .. messageBody, channel)
         end
-        
-        SendChatMessage(announceMsg, channel)
     end
     
 end)
