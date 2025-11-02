@@ -1,26 +1,23 @@
 -- Create our main frame
 local tankAlert_Frame = CreateFrame("Frame")
 
--- --- NEW: Addon Settings (v1.2) ---
+-- --- Addon Settings (v1.3) ---
 local TankAlert_Defaults = {
     enabled = true,
-    forceChannel = "auto", -- "auto", "say", "party", "raid"
+    forceChannel = "auto",
     abilities = {
         Taunt = true,
         SunderArmor = true,
         ShieldSlam = true,
         Revenge = true,
-        -- We can add MockingBlow here later
+        MockingBlow = true, -- The only v1.3 addition
     }
 }
-
--- This table will hold our loaded settings
 TankAlert_Settings = {}
 
 
 -- --- Helper Function: Raid Assist (v1.1) ---
 function TankAlert_IsRaidAssist()
-    -- (This function is unchanged)
     if (GetNumRaidMembers() == 0) then
         return false
     end
@@ -40,7 +37,6 @@ end
 
 -- --- Helper Function: Raid Icon Name (v1.1) ---
 function TankAlert_GetRaidIconName(iconIndex)
-    -- (This function is unchanged)
     if iconIndex == 1 then
         return "|cffFFFF00[Star]|r"
     elseif iconIndex == 2 then
@@ -62,12 +58,13 @@ function TankAlert_GetRaidIconName(iconIndex)
     end
 end
 
--- --- NEW: Helper Function to "normalize" ability names ---
+-- --- Helper Function to "normalize" ability names (v1.3) ---
 function TankAlert_GetAbilityKey(name)
     if (name == "Taunt") then return "Taunt" end
     if (name == "Sunder Armor") then return "SunderArmor" end
     if (name == "Shield Slam") then return "ShieldSlam" end
     if (name == "Revenge") then return "Revenge" end
+    if (name == "Mocking Blow") then return "MockingBlow" end
     return nil
 end
 
@@ -83,14 +80,12 @@ tankAlert_Frame:SetScript("OnEvent", function()
         if (TankAlert_Settings == nil or type(TankAlert_Settings) ~= "table") then
             TankAlert_Settings = {}
         end
-        
-        -- Merge defaults (this is safer for adding new features)
+        -- (Merge logic is the same)
         for key, value in pairs(TankAlert_Defaults) do
             if (TankAlert_Settings[key] == nil) then
                 TankAlert_Settings[key] = value
             end
         end
-        -- Special check for the nested 'abilities' table
         if (TankAlert_Settings.abilities == nil or type(TankAlert_Settings.abilities) ~= "table") then
             TankAlert_Settings.abilities = TankAlert_Defaults.abilities
         end
@@ -100,9 +95,9 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
         
-        
+        -- --- Event Registration (v1.3) ---
         tankAlert_Frame:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
-        
+
         local status = "|cffFF0000DISABLED|r"
         if (TankAlert_Settings.enabled) then
             status = "|cff00FF00ENABLED|r"
@@ -114,57 +109,55 @@ tankAlert_Frame:SetScript("OnEvent", function()
         tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
     end
     
-    -- --- Master Toggle (v1.2) ---
+    -- --- Master Toggle Check ---
     if (TankAlert_Settings.enabled == false) then
         return
     end
     
+    
+    -- --- Main Handler for our actions ---
     if event == "CHAT_MSG_SPELL_SELF_DAMAGE" then
         local msg = arg1
         local abilityName = nil
         local targetName = nil
 
-        if (msg) then
-            -- (Parsing logic is the same)
-            if (string.find(msg, "Taunt") and string.find(msg, "resisted")) then
-                abilityName = "Taunt"
-                _, _, targetName = string.find(msg, "resisted by (.+)")
-            elseif (string.find(msg, "Sunder Armor") and string.find(msg, "dodged")) then
-                abilityName = "Sunder Armor"
-                _, _, targetName = string.find(msg, "dodged by (.+)")
-            elseif (string.find(msg, "Sunder Armor") and string.find(msg, "parried")) then
-                abilityName = "Sunder Armor"
-                _, _, targetName = string.find(msg, "parried by (.+)")
-            elseif (string.find(msg, "Sunder Armor") and string.find(msg, "missed")) then
-                abilityName = "Sunder Armor"
-                _, _, targetName = string.find(msg, "missed (.+)")
-            elseif (string.find(msg, "Shield Slam") and string.find(msg, "dodged")) then
-                abilityName = "Shield Slam"
-                _, _, targetName = string.find(msg, "dodged by (.+)")
-            elseif (string.find(msg, "Shield Slam") and string.find(msg, "parried")) then
-                abilityName = "Shield Slam"
-                _, _, targetName = string.find(msg, "parried by (.+)")
-            elseif (string.find(msg, "Shield Slam") and string.find(msg, "missed")) then
-                abilityName = "Shield Slam"
-                _, _, targetName = string.find(msg, "missed (.+)")
-            elseif (string.find(msg, "Revenge") and string.find(msg, "dodged")) then
-                abilityName = "Revenge"
-                _, _, targetName = string.find(msg, "dodged by (.+)")
-            elseif (string.find(msg, "Revenge") and string.find(msg, "parried")) then
-                abilityName = "Revenge"
-                _, _, targetName = string.find(msg, "parried by (.+)")
-            elseif (string.find(msg, "Revenge") and string.find(msg, "missed")) then
-                abilityName = "Revenge"
-                _, _, targetName = string.find(msg, "missed (.+)")
+        if (not msg) then return end
+
+        -- === SECTION 1: Check for FAILED abilities ===
+        
+        if (string.find(msg, "Taunt") and string.find(msg, "resisted")) then
+            abilityName = "Taunt"
+            _, _, targetName = string.find(msg, "resisted by (.+)")
+        elseif (string.find(msg, "Sunder Armor") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
+            abilityName = "Sunder Armor"
+            if (string.find(msg, "dodged")) then _, _, targetName = string.find(msg, "dodged by (.+)")
+            elseif (string.find(msg, "parried")) then _, _, targetName = string.find(msg, "parried by (.+)")
+            elseif (string.find(msg, "missed")) then _, _, targetName = string.find(msg, "missed (.+)")
+            end
+        elseif (string.find(msg, "Shield Slam") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
+            abilityName = "Shield Slam"
+            if (string.find(msg, "dodged")) then _, _, targetName = string.find(msg, "dodged by (.+)")
+            elseif (string.find(msg, "parried")) then _, _, targetName = string.find(msg, "parried by (.+)")
+            elseif (string.find(msg, "missed")) then _, _, targetName = string.find(msg, "missed (.+)")
+            end
+        elseif (string.find(msg, "Revenge") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
+            abilityName = "Revenge"
+            if (string.find(msg, "dodged")) then _, _, targetName = string.find(msg, "dodged by (.+)")
+            elseif (string.find(msg, "parried")) then _, _, targetName = string.find(msg, "parried by (.+)")
+            elseif (string.find(msg, "missed")) then _, _, targetName = string.find(msg, "missed (.+)")
+            end
+        elseif (string.find(msg, "Mocking Blow") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
+            abilityName = "Mocking Blow"
+            if (string.find(msg, "dodged")) then _, _, targetName = string.find(msg, "dodged by (.+)")
+            elseif (string.find(msg, "parried")) then _, _, targetName = string.find(msg, "parried by (.+)")
+            elseif (string.find(msg, "missed")) then _, _, targetName = string.find(msg, "missed (.+)")
             end
         end
 
+        -- === SECTION 2: Build and Send Announcement ===
         if (abilityName) then
-            
-            -- --- NEW: Per-Ability Toggle Check (v1.2) ---
             local abilityKey = TankAlert_GetAbilityKey(abilityName)
             if (abilityKey == nil or TankAlert_Settings.abilities[abilityKey] == false) then
-                -- This ability is disabled, so stop.
                 return
             end
             
@@ -184,36 +177,35 @@ tankAlert_Frame:SetScript("OnEvent", function()
                 else
                     targetInfo = targetName
                 end
+                
                 messageBody = abilityName .. " FAILED on " .. targetInfo .. ". Watch threat!"
             else
                 messageBody = abilityName .. " FAILED. Watch threat!"
             end
 
-            -- --- NEW: Channel Override Logic (v1.2) ---
-            local channel = "SAY"
-            local messagePrefix = ""
-            
-            if (TankAlert_Settings.forceChannel ~= "auto") then
-                -- A force channel is set!
-                channel = string.upper(TankAlert_Settings.forceChannel)
-                if (channel == "RAID_WARNING") then
-                     messagePrefix = UnitName("player") .. "'s "
-                end
-            else
-                -- "auto" mode: run our normal logic
-                if (GetNumRaidMembers() > 0) then
-                    if (TankAlert_IsRaidAssist()) then
-                        channel = "RAID_WARNING"
-                        messagePrefix = UnitName("player") .. "'s "
-                    else
-                        channel = "RAID"
+            if (messageBody ~= "") then
+                local channel = "SAY"
+                local messagePrefix = ""
+                
+                if (TankAlert_Settings.forceChannel ~= "auto") then
+                    channel = string.upper(TankAlert_Settings.forceChannel)
+                    if (channel == "RAID_WARNING") then
+                         messagePrefix = UnitName("player") .. "'s "
                     end
-                elseif (GetNumPartyMembers() > 0) then
-                    channel = "PARTY"
+                else
+                    if (GetNumRaidMembers() > 0) then
+                        if (TankAlert_IsRaidAssist()) then
+                            channel = "RAID_WARNING"
+                            messagePrefix = UnitName("player") .. "'s "
+                        else
+                            channel = "RAID"
+                        end
+                    elseif (GetNumPartyMembers() > 0) then
+                        channel = "PARTY"
+                    end
                 end
+                SendChatMessage(messagePrefix .. messageBody, channel)
             end
-            
-            SendChatMessage(messagePrefix .. messageBody, channel)
         end
     end
     
@@ -223,9 +215,8 @@ end)
 tankAlert_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 
--- --- UPDATED: Slash Command Handler (v1.2) ---
+-- --- Slash Command Handler (v1.3) ---
 SlashCmdList["TANKALERT"] = function(msg)
-    -- This splits the command, e.g., "/ta force party" -> cmd="force", arg="party"
     local cmd, arg = string.match(string.lower(msg or ""), "([^ ]+) (.+)")
     if (cmd == nil and msg ~= "") then
         cmd = string.lower(msg)
@@ -238,12 +229,15 @@ SlashCmdList["TANKALERT"] = function(msg)
         elseif (arg == "sunder") then
             TankAlert_Settings.abilities.SunderArmor = not TankAlert_Settings.abilities.SunderArmor
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Sunder Armor alerts: " .. (TankAlert_Settings.abilities.SunderArmor and "ON" or "OFF"))
-        elseif (arg == "shieldslam" or arg == "slam") then
+        elseif (arg == "shieldslam") then
             TankAlert_Settings.abilities.ShieldSlam = not TankAlert_Settings.abilities.ShieldSlam
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Shield Slam alerts: " .. (TankAlert_Settings.abilities.ShieldSlam and "ON" or "OFF"))
         elseif (arg == "revenge") then
             TankAlert_Settings.abilities.Revenge = not TankAlert_Settings.abilities.Revenge
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Revenge alerts: " .. (TankAlert_Settings.abilities.Revenge and "ON" or "OFF"))
+        elseif (arg == "mockingblow" or arg == "mocking") then
+            TankAlert_Settings.abilities.MockingBlow = not TankAlert_Settings.abilities.MockingBlow
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Mocking Blow alerts: " .. (TankAlert_Settings.abilities.MockingBlow and "ON" or "OFF"))
         else
             TankAlert_Settings.enabled = not TankAlert_Settings.enabled
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now " .. (TankAlert_Settings.enabled and "|cff00FF00ENABLED|r." or "|cffFF0000DISABLED|r."))
@@ -275,19 +269,21 @@ SlashCmdList["TANKALERT"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cffFF0000DISABLED|r.")
         
     else
-        -- Show the current status
+        -- --- Status Menu (v1.3) ---
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [TankAlert Status] ------|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Master Toggle:|r " .. (TankAlert_Settings.enabled and "|cff00FF00ENABLED|r" or "|cffFF0000DISABLED|r"))
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Force Channel:|r |cffFFFFFF" .. string.upper(TankAlert_Settings.forceChannel) .. "|r")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Abilities:|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Failed Abilities:|r")
         DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFTaunt:|r " .. (TankAlert_Settings.abilities.Taunt and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFF_Sunder:|r " .. (TankAlert_Settings.abilities.SunderArmor and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFShield Slam:|r " .. (TankAlert_Settings.abilities.ShieldSlam and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFRevenge:|r " .. (TankAlert_Settings.abilities.Revenge and "ON" or "OFF"))
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFSunder:|r " .. (TankAlert_Settings.abilities.SunderArmor and "ON" or "OFF")) -- FIX: Removed underscore
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFShield Slam:|r " .. (TankAlert_Settings.abilities.ShieldSlam and "ON" or "OFF"))
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFRevenge:|r " .. (TankAlert_Settings.abilities.Revenge and "ON" or "OFF"))
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFMocking Blow:|r " .. (TankAlert_Settings.abilities.MockingBlow and "ON" or "OFF"))
+        -- We removed the "Failed Interrupts" section
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [Commands] ------|r")
-        DEFAULT_CHAT_FRAME:AddMessage("|cffFFFFFF/ta [on|off|toggle]|r - Master switch.")
-        DEFAULT_CHAT_FRAME:AddMessage("|cffFFFFFF/ta force [auto|party|raid|say]|r")
-        DEFAULT_CHAT_FRAME:AddMessage("|cffFFFFFF/ta toggle [taunt|sunder|slam|revenge]|r")
+        DEFAULT_CHAT_FRAME:AddMessage("/ta [on|off|toggle] - Master switch.")
+        DEFAULT_CHAT_FRAME:AddMessage("/ta force [auto | party | raid | say]")
+        DEFAULT_CHAT_FRAME:AddMessage("/ta toggle [taunt | sunder | shieldslam | revenge | mocking]") -- FIX: Removed interrupt commands
     end
 end
 
