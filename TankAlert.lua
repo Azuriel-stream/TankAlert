@@ -1,8 +1,13 @@
 -- Create our main frame
 local tankAlert_Frame = CreateFrame("Frame")
 
--- --- UPDATED: Throttle Timers (v1.5) ---
--- We now have two separate timers to prevent conflicts
+-- --- NEW: 1.12-Safe String Functions (v1.5.1) ---
+-- We capture the basic string functions to make the addon standalone
+local _strlower = string.lower
+local _strfind = string.find
+local _strsub = string.sub
+
+-- --- Throttle Timers (v1.5) ---
 local TankAlert_Last_CC_Alert_Time = 0
 local TankAlert_Last_Disarm_Alert_Time = 0
 
@@ -14,9 +19,8 @@ local TankAlert_Defaults = {
         forceChannel = "auto",
         announceCC = true,
         announceDisarm = true,
-        alertThrottle = 8, -- This 8-second value will be used for both timers
+        alertThrottle = 8,
     },
-    -- Class-specific settings
     WARRIOR = {
         abilities = {
             Taunt = true,
@@ -100,7 +104,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" then
         
         -- --- Settings Loader (v1.5) ---
-        -- (This logic is unchanged)
         local _, classKey = UnitClass("player")
         TankAlert_PlayerClass = classKey 
         if (TankAlert_Settings == nil or type(TankAlert_Settings) ~= "table") then
@@ -134,7 +137,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
         tankAlert_Frame:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
         tankAlert_Frame:RegisterEvent("UI_ERROR_MESSAGE")
         
-        -- UPDATED: Initialize both throttle timers
         TankAlert_Last_CC_Alert_Time = 0
         TankAlert_Last_Disarm_Alert_Time = 0
 
@@ -155,7 +157,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
     end
     
     
-    -- --- UI Error Handler (v1.5) ---
+    -- --- UI Error Handler (v1.5.1) ---
     if event == "UI_ERROR_MESSAGE" then
         local msg = arg1
         if (not msg) then return end
@@ -172,6 +174,23 @@ tankAlert_Frame:SetScript("OnEvent", function()
                 alertType = "CC"
                 alertMessage = "FEARED"
             end
+            
+            -- Druid Form Check
+            if (alertType == "CC" and TankAlert_PlayerClass == "DRUID") then
+                local isInBearForm = false
+                for i = 1, 6 do 
+                    local _, name, isActive = GetShapeshiftFormInfo(i)
+                    if (isActive and (name == "Bear Form" or name == "Dire Bear Form")) then
+                        isInBearForm = true
+                        break
+                    end
+                end
+                
+                if (not isInBearForm) then
+                    alertType = nil
+                end
+            end
+            
         end
         
         -- 2. Check for Disarm
@@ -192,12 +211,12 @@ tankAlert_Frame:SetScript("OnEvent", function()
             
             if (alertType == "CC") then
                 if (now > (TankAlert_Last_CC_Alert_Time + throttle)) then
-                    TankAlert_Last_CC_Alert_Time = now -- Reset CC timer
+                    TankAlert_Last_CC_Alert_Time = now
                     canAnnounce = true
                 end
             elseif (alertType == "DISARM") then
                 if (now > (TankAlert_Last_Disarm_Alert_Time + throttle)) then
-                    TankAlert_Last_Disarm_Alert_Time = now -- Reset DISARM timer
+                    TankAlert_Last_Disarm_Alert_Time = now
                     canAnnounce = true
                 end
             end
@@ -246,16 +265,15 @@ tankAlert_Frame:SetScript("OnEvent", function()
 
     -- --- Main Ability Failure Handler ---
     if event == "CHAT_MSG_SPELL_SELF_DAMAGE" then
+        -- (This entire section is unchanged)
         local msg = arg1
         local abilityName = nil
         local targetName = nil
-        local failureType = nil
+        local failureType = nil 
 
         if (not msg) then return end
 
-        -- === Class-Specific Parsing (v1.4) ===
         if (TankAlert_PlayerClass == "WARRIOR") then
-            -- (Warrior parsing logic is unchanged)
             if (string.find(msg, "Taunt") and string.find(msg, "resisted")) then
                 abilityName = "Taunt"
                 failureType = "RESISTED"
@@ -305,7 +323,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
 
-        -- === Build and Send Announcement ===
         if (abilityName and failureType) then
             local abilityKey = TankAlert_GetAbilityKey(abilityName)
             if (abilityKey == nil or TankAlert_Settings[TankAlert_PlayerClass] == nil or TankAlert_Settings[TankAlert_PlayerClass].abilities[abilityKey] == false) then
@@ -364,19 +381,32 @@ end)
 tankAlert_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 
--- --- UPDATED: Slash Command Handler (v1.5) ---
+-- --- UPDATED: Slash Command Handler (v1.5.1) ---
 SlashCmdList["TANKALERT"] = function(msg)
-    local cmd, arg = string.match(string.lower(msg or ""), "([^ ]+) (.+)")
-    if (cmd == nil and msg ~= "") then
-        cmd = string.lower(msg)
+    -- FIX 1: Use 1.12-safe string functions and parse manually
+    local rawmsg = _strlower(msg or "")
+    local cmd = ""
+    local arg = ""
+    
+    local spacePos = _strfind(rawmsg, " ") -- Find the first space
+    
+    if (spacePos) then
+        -- Command is everything before the space
+        cmd = _strsub(rawmsg, 1, spacePos - 1)
+        -- Argument is everything after the space (and lowercased)
+        arg = _strsub(rawmsg, spacePos + 1)
+    else
+        -- No space, so the whole message is the command
+        cmd = rawmsg
     end
+    
     
     local classSettings = TankAlert_Settings[TankAlert_PlayerClass]
 
     if (cmd == "toggle") then
         local abilityKey = nil
         
-        -- Check for global toggles first
+        -- (This logic is unchanged)
         if (arg == "cc") then
             TankAlert_Settings.global.announceCC = not TankAlert_Settings.global.announceCC
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r CC alerts (Stun/Fear): " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
@@ -387,7 +417,6 @@ SlashCmdList["TANKALERT"] = function(msg)
             return
         end
         
-        -- Check for class ability toggles
         if (classSettings and classSettings.abilities) then
             if (arg == "taunt") then abilityKey = "Taunt"
             elseif (arg == "sunder") then abilityKey = "SunderArmor"
@@ -402,12 +431,12 @@ SlashCmdList["TANKALERT"] = function(msg)
             classSettings.abilities[abilityKey] = not classSettings.abilities[abilityKey]
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r " .. abilityKey .. " alerts: " .. (classSettings.abilities[abilityKey] and "ON" or "OFF"))
         else
-            -- No valid arg, toggle the master switch
             TankAlert_Settings.global.enabled = not TankAlert_Settings.global.enabled
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r." or "|cffFF0000DISABLED|r."))
         end
         
     elseif (cmd == "force") then
+        -- (This logic is unchanged)
         if (arg == "party") then
             TankAlert_Settings.global.forceChannel = "party"
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Forcing all announcements to |cffFFFFFFPARTY|r chat.")
@@ -425,15 +454,18 @@ SlashCmdList["TANKALERT"] = function(msg)
         end
 
     elseif (cmd == "on") then
+        -- (This logic is unchanged)
         TankAlert_Settings.global.enabled = true
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cff00FF00ENABLED|r.")
         
     elseif (cmd == "off") or (cmd == "stop") then
+        -- (This logic is unchanged)
         TankAlert_Settings.global.enabled = false
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cffFF0000DISABLED|r.")
         
     else
-        -- --- UPDATED: Dynamic Status Menu (v1.5) ---
+        -- --- Dynamic Status Menu (v1.5) ---
+        -- (This logic is unchanged)
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [TankAlert Status] ------|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Class:|r |cffFFFFFF" .. TankAlert_PlayerClass .. "|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Master Toggle:|r " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r" or "|cffFF0000DISABLED|r"))
@@ -456,13 +488,12 @@ SlashCmdList["TANKALERT"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("/ta [on | off | toggle] - Master switch.")
         DEFAULT_CHAT_FRAME:AddMessage("/ta force [auto | party | raid | say]")
         
-        -- Dynamically build the toggle help string
         local toggleHelp = "/ta toggle [cc | disarm | "
         if (classSettings and classSettings.abilities) then
             for ability, enabled in pairs(classSettings.abilities) do
-                toggleHelp = toggleHelp .. string.lower(ability) .. " | "
+                toggleHelp = toggleHelp .. _strlower(ability) .. " | "
             end
-            toggleHelp = string.sub(toggleHelp, 1, -4) -- Remove the last " | "
+            toggleHelp = string.sub(toggleHelp, 1, -4)
         end
         toggleHelp = toggleHelp .. "]"
         DEFAULT_CHAT_FRAME:AddMessage(toggleHelp)
