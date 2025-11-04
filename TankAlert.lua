@@ -1,15 +1,20 @@
 -- Create our main frame
 local tankAlert_Frame = CreateFrame("Frame")
 
--- --- NEW: Class-Aware Variables (v1.4) ---
-TankAlert_PlayerClass = "UNKNOWN"
+-- --- UPDATED: Throttle Timers (v1.5) ---
+-- We now have two separate timers to prevent conflicts
+local TankAlert_Last_CC_Alert_Time = 0
+local TankAlert_Last_Disarm_Alert_Time = 0
 
--- --- NEW: Class-Aware Addon Settings (v1.4) ---
+-- --- Addon Settings (v1.5) ---
 local TankAlert_Defaults = {
     -- Global settings apply to all classes
     global = {
         enabled = true,
         forceChannel = "auto",
+        announceCC = true,
+        announceDisarm = true,
+        alertThrottle = 8, -- This 8-second value will be used for both timers
     },
     -- Class-specific settings
     WARRIOR = {
@@ -74,8 +79,9 @@ function TankAlert_GetRaidIconName(iconIndex)
     end
 end
 
--- --- UPDATED: Helper Function to "normalize" ability names (v1.4) ---
+-- --- Helper Function to "normalize" ability names (v1.4) ---
 function TankAlert_GetAbilityKey(name)
+    -- (This function is unchanged)
     if (name == "Taunt") then return "Taunt" end
     if (name == "Sunder Armor") then return "SunderArmor" end
     if (name == "Shield Slam") then return "ShieldSlam" end
@@ -93,7 +99,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
     
     if event == "PLAYER_ENTERING_WORLD" then
         
-        -- --- NEW: Class-Aware Settings Loader (v1.4) ---
+        -- --- Settings Loader (v1.5) ---
+        -- (This logic is unchanged)
         local _, classKey = UnitClass("player")
         TankAlert_PlayerClass = classKey 
         if (TankAlert_Settings == nil or type(TankAlert_Settings) ~= "table") then
@@ -123,7 +130,13 @@ tankAlert_Frame:SetScript("OnEvent", function()
         end
 
         
+        -- --- Event Registration (v1.5) ---
         tankAlert_Frame:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
+        tankAlert_Frame:RegisterEvent("UI_ERROR_MESSAGE")
+        
+        -- UPDATED: Initialize both throttle timers
+        TankAlert_Last_CC_Alert_Time = 0
+        TankAlert_Last_Disarm_Alert_Time = 0
 
         local status = "|cffFF0000DISABLED|r"
         if (TankAlert_Settings.global.enabled) then
@@ -142,75 +155,149 @@ tankAlert_Frame:SetScript("OnEvent", function()
     end
     
     
-    -- --- Main Handler for our actions ---
+    -- --- UI Error Handler (v1.5) ---
+    if event == "UI_ERROR_MESSAGE" then
+        local msg = arg1
+        if (not msg) then return end
+        
+        local alertType = nil 
+        local alertMessage = nil
+
+        -- 1. Check for Loss of Control
+        if (TankAlert_Settings.global.announceCC) then
+            if (msg == "Can't do that while stunned") then
+                alertType = "CC"
+                alertMessage = "STUNNED"
+            elseif (msg == "Can't do that while feared") then
+                alertType = "CC"
+                alertMessage = "FEARED"
+            end
+        end
+        
+        -- 2. Check for Disarm
+        if (not alertType and TankAlert_Settings.global.announceDisarm) then
+            if (msg == "Must have a Melee Weapon equipped in the main hand") then
+                if (GetInventoryItemLink("player", 16) ~= nil) then
+                    alertType = "DISARM"
+                    alertMessage = "DISARMED"
+                end
+            end
+        end
+        
+        -- 3. If we have an alert, check the *correct* throttle
+        if (alertType) then
+            local now = GetTime()
+            local throttle = TankAlert_Settings.global.alertThrottle
+            local canAnnounce = false
+            
+            if (alertType == "CC") then
+                if (now > (TankAlert_Last_CC_Alert_Time + throttle)) then
+                    TankAlert_Last_CC_Alert_Time = now -- Reset CC timer
+                    canAnnounce = true
+                end
+            elseif (alertType == "DISARM") then
+                if (now > (TankAlert_Last_Disarm_Alert_Time + throttle)) then
+                    TankAlert_Last_Disarm_Alert_Time = now -- Reset DISARM timer
+                    canAnnounce = true
+                end
+            end
+
+            -- 4. If we can announce, build and send
+            if (canAnnounce) then
+                local channel = "SAY"
+                if (TankAlert_Settings.global.forceChannel ~= "auto") then
+                    channel = string.upper(TankAlert_Settings.global.forceChannel)
+                else
+                    if (GetNumRaidMembers() > 0) then
+                        if (TankAlert_IsRaidAssist()) then
+                            channel = "RAID_WARNING"
+                        else
+                            channel = "RAID"
+                        end
+                    elseif (GetNumPartyMembers() > 0) then
+                        channel = "PARTY"
+                    end
+                end
+                
+                local finalMessage = ""
+                if (channel == "RAID_WARNING") then
+                    local targetName = UnitName("target")
+                    local targetInfo = ""
+                    if (targetName) then
+                        local iconIndex = GetRaidTargetIndex("target")
+                        local iconText = TankAlert_GetRaidIconName(iconIndex)
+                        if (iconText ~= "") then
+                            targetInfo = "on " .. iconText .. " " .. targetName
+                        else
+                            targetInfo = "on " .. targetName
+                        end
+                    end
+                    finalMessage = UnitName("player") .. " is " .. alertMessage .. "! Watch threat " .. targetInfo .. "!"
+                else
+                    finalMessage = "I'm " .. alertMessage .. "! Watch threat!"
+                end
+                
+                SendChatMessage(finalMessage, channel)
+            end
+        end
+        return
+    end
+    
+
+    -- --- Main Ability Failure Handler ---
     if event == "CHAT_MSG_SPELL_SELF_DAMAGE" then
         local msg = arg1
         local abilityName = nil
         local targetName = nil
-        local failureType = nil -- NEW v1.4
+        local failureType = nil
 
         if (not msg) then return end
 
-        -- === UPDATED: Class-Specific Parsing (v1.4) ===
-        
+        -- === Class-Specific Parsing (v1.4) ===
         if (TankAlert_PlayerClass == "WARRIOR") then
-            -- --- WARRIOR Abilities ---
+            -- (Warrior parsing logic is unchanged)
             if (string.find(msg, "Taunt") and string.find(msg, "resisted")) then
                 abilityName = "Taunt"
                 failureType = "RESISTED"
                 _, _, targetName = string.find(msg, "resisted by (.+)")
             elseif (string.find(msg, "Sunder Armor") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
                 abilityName = "Sunder Armor"
-                if (string.find(msg, "dodged")) then 
-                    failureType = "DODGED"
+                if (string.find(msg, "dodged")) then failureType = "DODGED"
                     _, _, targetName = string.find(msg, "dodged by (.+)")
-                elseif (string.find(msg, "parried")) then
-                    failureType = "PARRIED"
+                elseif (string.find(msg, "parried")) then failureType = "PARRIED"
                     _, _, targetName = string.find(msg, "parried by (.+)")
-                elseif (string.find(msg, "missed")) then
-                    failureType = "MISSED"
+                elseif (string.find(msg, "missed")) then failureType = "MISSED"
                     _, _, targetName = string.find(msg, "missed (.+)")
                 end
             elseif (string.find(msg, "Shield Slam") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
                 abilityName = "Shield Slam"
-                if (string.find(msg, "dodged")) then
-                    failureType = "DODGED"
+                if (string.find(msg, "dodged")) then failureType = "DODGED"
                     _, _, targetName = string.find(msg, "dodged by (.+)")
-                elseif (string.find(msg, "parried")) then
-                    failureType = "PARRIED"
+                elseif (string.find(msg, "parried")) then failureType = "PARRIED"
                     _, _, targetName = string.find(msg, "parried by (.+)")
-                elseif (string.find(msg, "missed")) then
-                    failureType = "MISSED"
+                elseif (string.find(msg, "missed")) then failureType = "MISSED"
                     _, _, targetName = string.find(msg, "missed (.+)")
                 end
             elseif (string.find(msg, "Revenge") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
                 abilityName = "Revenge"
-                if (string.find(msg, "dodged")) then
-                    failureType = "DODGED"
+                if (string.find(msg, "dodged")) then failureType = "DODGED"
                     _, _, targetName = string.find(msg, "dodged by (.+)")
-                elseif (string.find(msg, "parried")) then
-                    failureType = "PARRIED"
+                elseif (string.find(msg, "parried")) then failureType = "PARRIED"
                     _, _, targetName = string.find(msg, "parried by (.+)")
-                elseif (string.find(msg, "missed")) then
-                    failureType = "MISSED"
+                elseif (string.find(msg, "missed")) then failureType = "MISSED"
                     _, _, targetName = string.find(msg, "missed (.+)")
                 end
             elseif (string.find(msg, "Mocking Blow") and (string.find(msg, "dodged") or string.find(msg, "parried") or string.find(msg, "missed"))) then
                 abilityName = "Mocking Blow"
-                if (string.find(msg, "dodged")) then
-                    failureType = "DODGED"
+                if (string.find(msg, "dodged")) then failureType = "DODGED"
                     _, _, targetName = string.find(msg, "dodged by (.+)")
-                elseif (string.find(msg, "parried")) then
-                    failureType = "PARRIED"
+                elseif (string.find(msg, "parried")) then failureType = "PARRIED"
                     _, _, targetName = string.find(msg, "parried by (.+)")
-                elseif (string.find(msg, "missed")) then
-                    failureType = "MISSED"
+                elseif (string.find(msg, "missed")) then failureType = "MISSED"
                     _, _, targetName = string.find(msg, "missed (.+)")
                 end
             end
-
         elseif (TankAlert_PlayerClass == "DRUID") then
-            -- --- DRUID Abilities ---
             if (string.find(msg, "Growl") and string.find(msg, "resisted")) then
                 abilityName = "Growl"
                 failureType = "RESISTED"
@@ -218,9 +305,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
 
-
-        -- === SECTION 2: Build and Send Announcement ===
-        if (abilityName and failureType) then -- Check for failureType
+        -- === Build and Send Announcement ===
+        if (abilityName and failureType) then
             local abilityKey = TankAlert_GetAbilityKey(abilityName)
             if (abilityKey == nil or TankAlert_Settings[TankAlert_PlayerClass] == nil or TankAlert_Settings[TankAlert_PlayerClass].abilities[abilityKey] == false) then
                 return
@@ -228,7 +314,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
             
             local messageBody = ""
             local targetInfo = "" 
-
             if (targetName) then
                 targetName = string.gsub(targetName, "%p$", "")
                 local raidIconText = ""
@@ -242,11 +327,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
                 else
                     targetInfo = targetName
                 end
-                
-                -- UPDATED v1.4 Message:
                 messageBody = abilityName .. " " .. failureType .. " on " .. targetInfo .. ". Watch threat!"
             else
-                -- UPDATED v1.4 Failsafe:
                 messageBody = abilityName .. " " .. failureType .. ". Watch threat!"
             end
 
@@ -282,7 +364,7 @@ end)
 tankAlert_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 
--- --- UPDATED: Slash Command Handler (v1.4) ---
+-- --- UPDATED: Slash Command Handler (v1.5) ---
 SlashCmdList["TANKALERT"] = function(msg)
     local cmd, arg = string.match(string.lower(msg or ""), "([^ ]+) (.+)")
     if (cmd == nil and msg ~= "") then
@@ -290,25 +372,37 @@ SlashCmdList["TANKALERT"] = function(msg)
     end
     
     local classSettings = TankAlert_Settings[TankAlert_PlayerClass]
-    if (not classSettings) then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r No settings loaded for your class. Addon may not be supported.")
-        return
-    end
 
     if (cmd == "toggle") then
         local abilityKey = nil
-        if (arg == "taunt") then abilityKey = "Taunt"
-        elseif (arg == "sunder") then abilityKey = "SunderArmor"
-        elseif (arg == "shieldslam") then abilityKey = "ShieldSlam"
-        elseif (arg == "revenge") then abilityKey = "Revenge"
-        elseif (arg == "mocking" or arg == "mockingblow") then abilityKey = "MockingBlow"
-        elseif (arg == "growl") then abilityKey = "Growl"
+        
+        -- Check for global toggles first
+        if (arg == "cc") then
+            TankAlert_Settings.global.announceCC = not TankAlert_Settings.global.announceCC
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r CC alerts (Stun/Fear): " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
+            return
+        elseif (arg == "disarm") then
+            TankAlert_Settings.global.announceDisarm = not TankAlert_Settings.global.announceDisarm
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Disarm alerts: " .. (TankAlert_Settings.global.announceDisarm and "ON" or "OFF"))
+            return
+        end
+        
+        -- Check for class ability toggles
+        if (classSettings and classSettings.abilities) then
+            if (arg == "taunt") then abilityKey = "Taunt"
+            elseif (arg == "sunder") then abilityKey = "SunderArmor"
+            elseif (arg == "shieldslam") then abilityKey = "ShieldSlam"
+            elseif (arg == "revenge") then abilityKey = "Revenge"
+            elseif (arg == "mocking" or arg == "mockingblow") then abilityKey = "MockingBlow"
+            elseif (arg == "growl") then abilityKey = "Growl"
+            end
         end
 
-        if (abilityKey and classSettings and classSettings.abilities and classSettings.abilities[abilityKey] ~= nil) then
+        if (abilityKey and classSettings.abilities[abilityKey] ~= nil) then
             classSettings.abilities[abilityKey] = not classSettings.abilities[abilityKey]
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r " .. abilityKey .. " alerts: " .. (classSettings.abilities[abilityKey] and "ON" or "OFF"))
         else
+            -- No valid arg, toggle the master switch
             TankAlert_Settings.global.enabled = not TankAlert_Settings.global.enabled
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r." or "|cffFF0000DISABLED|r."))
         end
@@ -339,12 +433,16 @@ SlashCmdList["TANKALERT"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cffFF0000DISABLED|r.")
         
     else
-        -- --- UPDATED: Dynamic Status Menu (v1.4) ---
+        -- --- UPDATED: Dynamic Status Menu (v1.5) ---
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [TankAlert Status] ------|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Class:|r |cffFFFFFF" .. TankAlert_PlayerClass .. "|r")
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Master Toggle:|r " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r" or "|cffFF0000DISABLED|r"))
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Force Channel:|r |cffFFFFFF" .. string.upper(TankAlert_Settings.global.forceChannel) .. "|r")
         
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Global Alerts:|r")
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFCC (Stun/Fear):|r " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
+        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFDisarm:|r " .. (TankAlert_Settings.global.announceDisarm and "ON" or "OFF"))
+
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Tracked Abilities:|r")
         if (classSettings and classSettings.abilities) then
             for ability, enabled in pairs(classSettings.abilities) do
@@ -359,7 +457,7 @@ SlashCmdList["TANKALERT"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("/ta force [auto | party | raid | say]")
         
         -- Dynamically build the toggle help string
-        local toggleHelp = "/ta toggle ["
+        local toggleHelp = "/ta toggle [cc | disarm | "
         if (classSettings and classSettings.abilities) then
             for ability, enabled in pairs(classSettings.abilities) do
                 toggleHelp = toggleHelp .. string.lower(ability) .. " | "

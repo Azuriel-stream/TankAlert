@@ -1,11 +1,12 @@
 # TankAlert (WoW 1.12)
 
-A lightweight, configurable addon for Vanilla (1.12) clients that automatically announces failed tanking abilities for multiple classes.
+A lightweight, configurable addon for Vanilla (1.12) clients that automatically announces failed tanking abilities and critical loss-of-control events.
 
 ## Features
 
 * **Multi-Class Support:** Automatically detects your class (currently **Warrior** and **Druid**) and loads the correct abilities and settings.
-* **Specific Alerts:** Announces the *exact* failure type (e.g., `RESISTED`, `DODGED`, `PARRIED`, `MISSED`) for maximum clarity.
+* **Specific Failure Alerts:** Announces the *exact* failure type (e.g., `RESISTED`, `DODGED`, `PARRIED`, `MISSED`) for maximum clarity.
+* **Smart CC & Disarm Alerts:** Proactively announces if you are STUNNED, FEARED, or DISARMED. Uses smart detection to prevent false-positives and includes an 8-second throttle to prevent spam.
 * **Smart Announce:** Automatically detects if you are solo, in a party, or in a raid, and sends messages to the correct channel.
 * **Intelligent Raid Logic:** Announces to `/raidwarning` if you are a raid leader or assist. Announces to `/raid` if you are a regular member, keeping raid warnings clean.
 * **Raid Icon Priority:** Automatically includes the target's raid icon (e.g., `[Skull]`) in the message. If no icon is present, it uses the target's name instead.
@@ -26,6 +27,10 @@ A lightweight, configurable addon for Vanilla (1.12) clients that automatically 
 * **Growl** (RESISTED)
 *(More Druid abilities will be added in future versions!)*
 
+## Global Alerts (All Classes)
+* **Loss of Control (Stun/Fear):** Alerts when you try to use an ability while Stunned or Feared.
+* **Disarm:** Intelligently alerts when you try to use an ability while Disarmed (and confirms you have a weapon equipped).
+
 ## Slash Commands
 
 All settings are controlled via the `/ta` command.
@@ -39,13 +44,13 @@ All settings are controlled via the `/ta` command.
 * `/ta force [auto | party | raid | say]`
     Overrides the channel logic. For example, `/ta force party` will make all announcements go to party chat, even if you are in a raid. Use `/ta force auto` to return to normal.
 
-* `/ta toggle [ability]`
-    Toggles announcements for a specific ability for your class (e.g., `/ta toggle sunder` or `/ta toggle growl`).
+* `/ta toggle [ability | cc | disarm]`
+    Toggles announcements for a specific ability (e.g., `sunder`) or a global alert (e.g., `cc` or `disarm`).
 
 ## Installation
 
 1.  Go to the [Releases page](https://github.com/Azuriel-stream/TankAlert/releases) of this repository.
-2.  Download the latest `.zip` file (e.g., `TankAlert-v1.4.zip`).
+2.  Download the latest `.zip` file (e.g., `TankAlert-v1.5.zip`).
 3.  Extract the folder inside the `.zip` file.
 4.  Rename the folder inside to **`TankAlert`** (if it isn't already).
 5.  Place the `TankAlert` folder into your `World of Warcraft\Interface\AddOns\` directory.
@@ -53,4 +58,4 @@ All settings are controlled via the `/ta` command.
 
 ## Compatibility
 
-This addon is built for the 1.12 client API. It is extremely lightweight and does not modify any UI elements.
+This addon is built for the 1.12 client API and is extremely lightweight. It does not modify any UI elements.
