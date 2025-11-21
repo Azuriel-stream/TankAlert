@@ -31,6 +31,19 @@ A lightweight, configurable addon for Vanilla (1.12) clients that automatically 
 * **Loss of Control (Stun/Fear):** Alerts when you try to use an ability while Stunned or Feared.
 * **Disarm:** Intelligently alerts when you try to use an ability while Disarmed (and confirms you have a weapon equipped).
 
+## New in v1.6: Threat Whispers (TWThreat Integration)
+TankAlert now integrates with **TWThreat** to help you manage group threat without looking at a meter.
+
+* **Smart Whispers:** If a DPS or Healer exceeds the threat threshold (default 90%) on your target, TankAlert will send them a private whisper warning them to watch their threat.
+* **Passive "Spy" Mode:** This feature requires at least one person in your party/raid to be running the **TWThreat** addon. TankAlert listens to their broadcasts invisibly.
+* **Tank Protection:** The addon intelligently detects who the current tank is and will *not* whisper them, even if they are high on threat.
+* **Anti-Spam Throttle:** Whispers are throttled to occur at most once every 15 seconds per player.
+
+### Threat Commands
+* `/ta toggle whisper` - Enable/Disable the threat whisper system.
+* `/ta toggle tankonly` - **(Smart Mode)** If enabled, TankAlert will ONLY send whispers if **YOU** are currently the tank. This prevents 5 people running TankAlert from spamming the poor mage at the same time.
+* `/ta set threshold 90` - Sets the threat percentage at which to whisper (Range: 50-100).
+
 ## Slash Commands
 
 All settings are controlled via the `/ta` command.
@@ -50,7 +63,7 @@ All settings are controlled via the `/ta` command.
 ## Installation
 
 1.  Go to the [Releases page](https://github.com/Azuriel-stream/TankAlert/releases) of this repository.
-2.  Download the latest `.zip` file (e.g., `TankAlert-v1.5.zip`).
+2.  Download the latest `.zip` file (e.g., `TankAlert-v1.6.zip`).
 3.  Extract the folder inside the `.zip` file.
 4.  Rename the folder inside to **`TankAlert`** (if it isn't already).
 5.  Place the `TankAlert` folder into your `World of Warcraft\Interface\AddOns\` directory.
