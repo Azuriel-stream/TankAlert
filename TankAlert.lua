@@ -9,7 +9,7 @@ local TankAlert_Last_Disarm_Alert_Time = 0
 local TankAlert_CurrentThreat = {}
 local TankAlert_WhisperThrottle = {}
 local TankAlert_PlayerClass = nil -- Localized for safety
-local TankAlert_Version = "1.7"
+local TankAlert_Version = "1.8"
 
 -- --- 1.12-Safe String Functions (v1.6.3) ---
 local _strlower = string.lower
@@ -49,6 +49,23 @@ local TankAlert_Defaults = {
         abilities = {
             Growl = true,
         }
+    },
+    -- v1.8: Added Paladin Defaults
+    PALADIN = {
+        abilities = {
+            HandOfReckoning = true,
+            HolyStrike = true,
+        }
+    },
+    -- v1.8: Added Shaman Defaults
+    SHAMAN = {
+        abilities = {
+            EarthshakerSlam = true, -- The Main Taunt
+            EarthShock = true,
+            FrostShock = true,
+            LightningStrike = true, 
+            Stormstrike = true,
+        }
     }
 }
 
@@ -69,14 +86,27 @@ local TankAlert_AbilityDisplayNames = {
     ["ShieldSlam"] = "Shield Slam",
     ["Revenge"] = "Revenge",
     ["MockingBlow"] = "Mocking Blow",
-    ["Growl"] = "Growl"
+    ["Growl"] = "Growl",
+    -- v1.8 Paladin
+    ["HandOfReckoning"] = "Hand of Reckoning",
+    ["HolyStrike"] = "Holy Strike",
+    -- v1.8 Shaman
+    ["EarthshakerSlam"] = "Earthshaker Slam",
+    ["EarthShock"] = "Earth Shock",
+    ["FrostShock"] = "Frost Shock",
+    ["LightningStrike"] = "Lightning Strike",
+    ["Stormstrike"] = "Stormstrike"
 }
 
 -- Explicit order to ensure consistent layout (Col 1 then Col 2)
 -- UPDATED: Sunder Armor moved to Col 1 (Index 1), Taunt moved to Col 2 (Index 4)
 local TankAlert_AbilityOrder = {
     WARRIOR = {"SunderArmor", "Revenge", "ShieldSlam", "Taunt", "MockingBlow"},
-    DRUID = {"Growl"}
+    DRUID = {"Growl"},
+    -- v1.8: Taunt first, then Stun, then DPS
+    PALADIN = {"HandOfReckoning", "HolyStrike"},
+    -- v1.8: Earthshaker Slam is the Priority 1 Taunt
+    SHAMAN = {"EarthshakerSlam", "EarthShock", "LightningStrike", "Stormstrike", "FrostShock"}
 }
 
 -- --- Widget Factory: Checkbox ---
@@ -270,8 +300,12 @@ local function TankAlert_InitGUI()
             if (classSettings.abilities[abilityKey] ~= nil) then
                 local displayName = TankAlert_AbilityDisplayNames[abilityKey] or abilityKey
                 
+                -- FIX: Create a local copy of abilityKey for the closure to capture safely
+                local savedKey = abilityKey 
+
                 GUI_CreateCheckbox(f, x + (col * 150), y, displayName, "Track " .. displayName, function(checked)
-                     classSettings.abilities[abilityKey] = checked
+                     -- Use 'savedKey' instead of 'abilityKey'
+                     classSettings.abilities[savedKey] = checked
                 end):SetChecked(classSettings.abilities[abilityKey])
                 
                 y = y - 25
@@ -363,6 +397,15 @@ local TankAlert_AbilityKeyLookup = {
     ["Revenge"] = "Revenge",
     ["Mocking Blow"] = "MockingBlow",
     ["Growl"] = "Growl",
+    -- v1.8 Paladin
+    ["Hand of Reckoning"] = "HandOfReckoning",
+    ["Holy Strike"] = "HolyStrike",
+    -- v1.8 Shaman
+    ["Earthshaker Slam"] = "EarthshakerSlam",
+    ["Earth Shock"] = "EarthShock",
+    ["Frost Shock"] = "FrostShock",
+    ["Lightning Strike"] = "LightningStrike",
+    ["Stormstrike"] = "Stormstrike",
 }
 
 -- --- Helper Function to "normalize" ability names (v1.4) ---
@@ -381,6 +424,25 @@ local TankAlert_AbilityPatterns = {
     },
     DRUID = {
         {name = "Growl", pattern = "Growl", failure = "resisted", extract = "resisted by (.+)"},
+    },
+    -- v1.8 Hybrid Support
+    PALADIN = {
+        -- Taunt (Turtle WoW Specific)
+        {name = "Hand of Reckoning", pattern = "Hand of Reckoning", failure = "resisted", extract = "resisted by (.+)"},
+        -- Primary Threat Ability (Melee)
+        {name = "Holy Strike", pattern = "Holy Strike", failures = {"dodged", "parried", "missed"}},
+    },
+    SHAMAN = {
+        -- Primary Taunt (Turtle WoW)
+        {name = "Earthshaker Slam", pattern = "Earthshaker Slam", failure = "resisted", extract = "resisted by (.+)"},
+        -- High Threat Spell
+        {name = "Earth Shock", pattern = "Earth Shock", failure = "resisted", extract = "resisted by (.+)"},
+        -- Pull / Kiting
+        {name = "Frost Shock", pattern = "Frost Shock", failure = "resisted", extract = "resisted by (.+)"},
+        -- Turtle WoW Custom Ability (Physical School -> Melee Failures)
+        {name = "Lightning Strike", pattern = "Lightning Strike", failures = {"dodged", "parried", "missed"}},
+        -- Enhancement Talent (Melee Failures)
+        {name = "Stormstrike", pattern = "Stormstrike", failures = {"dodged", "parried", "missed"}}
     }
 }
 
