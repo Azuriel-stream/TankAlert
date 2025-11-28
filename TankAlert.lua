@@ -9,6 +9,7 @@ local TankAlert_Last_Disarm_Alert_Time = 0
 local TankAlert_CurrentThreat = {}
 local TankAlert_WhisperThrottle = {}
 local TankAlert_PlayerClass = nil -- Localized for safety
+local TankAlert_Version = "1.7"
 
 -- --- 1.12-Safe String Functions (v1.6.3) ---
 local _strlower = string.lower
@@ -20,6 +21,7 @@ local _tinsert = table.insert
 local _tremove = table.remove
 local _strupper = string.upper
 local _strlen = string.len
+local _format = string.format
 
 -- --- Addon Settings (v1.6) ---
 local TankAlert_Defaults = {
@@ -49,6 +51,267 @@ local TankAlert_Defaults = {
         }
     }
 }
+
+-- =========================================================================
+--  GUI ENGINE (v1.7)
+--  Pure Lua Interface for Vanilla 1.12
+-- =========================================================================
+
+local TankAlert_GUI = {
+    frame = nil,
+    widgets = {}
+}
+
+-- --- GUI Helpers: Display Names & Order ---
+local TankAlert_AbilityDisplayNames = {
+    ["Taunt"] = "Taunt",
+    ["SunderArmor"] = "Sunder Armor",
+    ["ShieldSlam"] = "Shield Slam",
+    ["Revenge"] = "Revenge",
+    ["MockingBlow"] = "Mocking Blow",
+    ["Growl"] = "Growl"
+}
+
+-- Explicit order to ensure consistent layout (Col 1 then Col 2)
+-- UPDATED: Sunder Armor moved to Col 1 (Index 1), Taunt moved to Col 2 (Index 4)
+local TankAlert_AbilityOrder = {
+    WARRIOR = {"SunderArmor", "Revenge", "ShieldSlam", "Taunt", "MockingBlow"},
+    DRUID = {"Growl"}
+}
+
+-- --- Widget Factory: Checkbox ---
+local function GUI_CreateCheckbox(parent, x, y, labelText, tooltipText, onClickFunc)
+    -- Generate a unique name for the global scope (Required by 1.12 templates)
+    local name = "TA_Check_" .. string.gsub(labelText, "%s+", "") .. math.random(1000)
+    
+    local cb = CreateFrame("CheckButton", name, parent, "OptionsCheckButtonTemplate")
+    cb:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    
+    -- Set Label
+    getglobal(name.."Text"):SetText(labelText)
+    
+    -- Handle Click
+    cb:SetScript("OnClick", function()
+        local isChecked = (this:GetChecked() == 1)
+        if (onClickFunc) then onClickFunc(isChecked) end
+    end)
+    
+    -- Handle Tooltip
+    cb:SetScript("OnEnter", function()
+        if (tooltipText) then
+            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+            GameTooltip:SetText(labelText, 1, 1, 1)
+            GameTooltip:AddLine(tooltipText, nil, nil, nil, 1)
+            GameTooltip:Show()
+        end
+    end)
+    cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    
+    return cb
+end
+
+-- --- Widget Factory: Slider ---
+local function GUI_CreateSlider(parent, x, y, minVal, maxVal, labelText, onChangeFunc)
+    local name = "TA_Slider_" .. math.random(1000)
+    local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+    slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    slider:SetWidth(180)
+    slider:SetHeight(16)
+    
+    slider:SetMinMaxValues(minVal, maxVal)
+    slider:SetValueStep(1)
+    
+    -- Labels
+    getglobal(name.."Text"):SetText(labelText)
+    getglobal(name.."Low"):SetText(minVal.."%")
+    getglobal(name.."High"):SetText(maxVal.."%")
+    
+    -- Value Display (Create a font string to show current value)
+    local valText = slider:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    valText:SetPoint("TOP", slider, "BOTTOM", 0, 3)
+    valText:SetText(slider:GetValue())
+    
+    slider:SetScript("OnValueChanged", function()
+        local val = math.floor(this:GetValue())
+        valText:SetText(val .. "%")
+        if (onChangeFunc) then onChangeFunc(val) end
+    end)
+    
+    return slider
+end
+
+-- --- Initialize the Main Window ---
+local function TankAlert_InitGUI()
+    if (TankAlert_GUI.frame) then return end -- Already initialized
+
+    -- 1. Create Main Frame
+    local f = CreateFrame("Frame", "TankAlertOptions", UIParent)
+    f:SetWidth(400)
+    f:SetHeight(520)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+    
+    -- Make movable
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() this:StartMoving() end)
+    f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+    
+    -- Header
+    local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOP", f, "TOP", 0, -16)
+    title:SetText("TankAlert v" .. TankAlert_Version)
+    
+    -- Close Button
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
+    
+    TankAlert_GUI.frame = f
+    f:Hide() -- Hide by default
+
+    -- ====================
+    -- SECTION 1: GLOBAL
+    -- ====================
+    local y = -50
+    local x = 20
+    
+    TankAlert_GUI.widgets.master = GUI_CreateCheckbox(f, x, y, "Enable Addon", "Master switch for TankAlert.", function(checked)
+        TankAlert_Settings.global.enabled = checked
+        if (checked) then 
+             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Enabled.")
+        else
+             DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r Disabled.")
+        end
+    end)
+    
+    y = y - 30
+    TankAlert_GUI.widgets.cc = GUI_CreateCheckbox(f, x, y, "Announce CC", "Announce when Stunned or Feared.", function(checked)
+        TankAlert_Settings.global.announceCC = checked
+    end)
+    
+    TankAlert_GUI.widgets.disarm = GUI_CreateCheckbox(f, x+150, y, "Announce Disarm", "Announce when Disarmed.", function(checked)
+        TankAlert_Settings.global.announceDisarm = checked
+    end)
+
+    -- ====================
+    -- SECTION 2: THREAT
+    -- ====================
+    y = y - 40
+    local headerThreat = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    headerThreat:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+    headerThreat:SetText("Threat Whispers (Requires TWThreat)")
+    
+    y = y - 20
+    TankAlert_GUI.widgets.whisper = GUI_CreateCheckbox(f, x, y, "Enable Whispers", "Whisper players approaching aggro.", function(checked)
+        TankAlert_Settings.global.announceThreatWhisper = checked
+    end)
+    
+    y = y - 30
+    TankAlert_GUI.widgets.tankonly = GUI_CreateCheckbox(f, x, y, "Only if I am Tank", "Only send whispers if YOU are the Main Tank.", function(checked)
+        TankAlert_Settings.global.onlyTankWhispers = checked
+    end)
+
+    y = y - 40
+    TankAlert_GUI.widgets.threshold = GUI_CreateSlider(f, x+10, y, 50, 100, "Whisper Threshold %", function(val)
+        TankAlert_Settings.global.threatWhisperThreshold = val
+    end)
+
+    -- ====================
+    -- SECTION 3: CHANNEL
+    -- ====================
+    y = y - 50
+    local headerChan = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    headerChan:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+    headerChan:SetText("Output Channel")
+    
+    y = y - 20
+    -- Radio button simulation
+    local function UpdateChannels(selected)
+        TankAlert_Settings.global.forceChannel = selected
+        TankAlert_GUI.widgets.chanAuto:SetChecked(selected == "auto")
+        TankAlert_GUI.widgets.chanSay:SetChecked(selected == "say")
+        TankAlert_GUI.widgets.chanParty:SetChecked(selected == "party")
+        TankAlert_GUI.widgets.chanRaid:SetChecked(selected == "raid")
+    end
+    
+    -- FIXED: 2x2 Grid Layout for space efficiency
+    TankAlert_GUI.widgets.chanAuto = GUI_CreateCheckbox(f, x, y, "Auto", "Smart detection (Raid/Party).", function() UpdateChannels("auto") end)
+    TankAlert_GUI.widgets.chanSay = GUI_CreateCheckbox(f, x+150, y, "Say", "Force Say.", function() UpdateChannels("say") end)
+    
+    y = y - 26 -- Move down for second row
+    TankAlert_GUI.widgets.chanParty = GUI_CreateCheckbox(f, x, y, "Party", "Force Party.", function() UpdateChannels("party") end)
+    TankAlert_GUI.widgets.chanRaid = GUI_CreateCheckbox(f, x+150, y, "Raid", "Force Raid.", function() UpdateChannels("raid") end)
+
+    -- ====================
+    -- SECTION 4: CLASS
+    -- ====================
+    y = y - 40
+    local headerClass = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    headerClass:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+    headerClass:SetText("Tracked Abilities (" .. (TankAlert_PlayerClass or "Unknown") .. ")")
+
+    y = y - 20
+    local classSettings = TankAlert_Settings[TankAlert_PlayerClass]
+    local abilityOrder = TankAlert_AbilityOrder[TankAlert_PlayerClass]
+
+    if (classSettings and classSettings.abilities and abilityOrder) then
+        local col = 0
+        local startY = y
+        local count = 0
+        
+        for _, abilityKey in ipairs(abilityOrder) do
+            -- Ensure ability exists in settings
+            if (classSettings.abilities[abilityKey] ~= nil) then
+                local displayName = TankAlert_AbilityDisplayNames[abilityKey] or abilityKey
+                
+                GUI_CreateCheckbox(f, x + (col * 150), y, displayName, "Track " .. displayName, function(checked)
+                     classSettings.abilities[abilityKey] = checked
+                end):SetChecked(classSettings.abilities[abilityKey])
+                
+                y = y - 25
+                count = count + 1
+                
+                -- Wrap after 3 items to ensure "Sunder Armor" (Index 4) hits Col 2
+                if (count == 3) then
+                     y = startY
+                     col = col + 1
+                end
+            end
+        end
+    else
+        local noClass = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        noClass:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+        noClass:SetText("No configurable abilities for this class.")
+    end
+
+    -- --- Script: OnShow (Sync UI to Data) ---
+    f:SetScript("OnShow", function()
+        local g = TankAlert_Settings.global
+        TankAlert_GUI.widgets.master:SetChecked(g.enabled)
+        TankAlert_GUI.widgets.cc:SetChecked(g.announceCC)
+        TankAlert_GUI.widgets.disarm:SetChecked(g.announceDisarm)
+        TankAlert_GUI.widgets.whisper:SetChecked(g.announceThreatWhisper)
+        TankAlert_GUI.widgets.tankonly:SetChecked(g.onlyTankWhispers)
+        
+        TankAlert_GUI.widgets.threshold:SetValue(g.threatWhisperThreshold)
+        
+        TankAlert_GUI.widgets.chanAuto:SetChecked(g.forceChannel == "auto")
+        TankAlert_GUI.widgets.chanSay:SetChecked(g.forceChannel == "say")
+        TankAlert_GUI.widgets.chanParty:SetChecked(g.forceChannel == "party")
+        TankAlert_GUI.widgets.chanRaid:SetChecked(g.forceChannel == "raid")
+    end)
+end
+
+-- =========================================================================
+--  END GUI ENGINE
+-- =========================================================================
+
 
 -- --- Helper Function: Raid Assist (v1.1) ---
 function TankAlert_IsRaidAssist()
@@ -304,6 +567,15 @@ tankAlert_Frame:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" then
         
         _, TankAlert_PlayerClass = UnitClass("player")
+        
+        -- NEW: Check for supported class (Class Gate)
+        -- If the player's class is not in our AbilityPatterns table (e.g., ROGUE, MAGE),
+        -- we disable the addon immediately to save resources and avoid confusion.
+        if (not TankAlert_AbilityPatterns[TankAlert_PlayerClass]) then
+             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r v" .. TankAlert_Version .. " loaded but suspended (Class " .. TankAlert_PlayerClass .. " not supported).")
+             tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
+             return
+        end
 
         if (TankAlert_Settings == nil or type(TankAlert_Settings) ~= "table") then
             TankAlert_Settings = {}
@@ -331,6 +603,9 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
         
+        -- INITIALIZE GUI (Lazy load on login)
+        TankAlert_InitGUI()
+        
         tankAlert_Frame:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
         tankAlert_Frame:RegisterEvent("UI_ERROR_MESSAGE")
         tankAlert_Frame:RegisterEvent("CHAT_MSG_ADDON")
@@ -346,8 +621,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
             status = "|cff00FF00ENABLED|r"
         end
         
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r TankAlert is now active for |cffFFFFFF" .. TankAlert_PlayerClass .. "|r. (" .. status .. ")")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Type |cffFFFFFF/ta|r for options.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r v" .. TankAlert_Version .. " active. Type |cffFFFFFF/ta|r to open settings.")
         
         tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
     end
@@ -562,7 +836,7 @@ end)
 tankAlert_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 
--- --- Slash Command Handler (v1.6.3) ---
+-- --- Slash Command Handler (v1.7) ---
 SlashCmdList["TANKALERT"] = function(msg)
     local rawmsg = _strlower(msg or "")
     local cmd = ""
@@ -576,133 +850,55 @@ SlashCmdList["TANKALERT"] = function(msg)
         cmd = rawmsg
     end
     
+    -- NEW: Check class support (Class Gate)
+    if (not TankAlert_AbilityPatterns[TankAlert_PlayerClass]) then
+         DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r Class " .. (TankAlert_PlayerClass or "Unknown") .. " is not supported.")
+         return
+    end
+    
+    -- If no command, open GUI
+    if (cmd == "") then
+        if (TankAlert_GUI.frame) then
+            TankAlert_GUI.frame:Show()
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r GUI not initialized.")
+        end
+        return
+    end
+
+    -- Keep existing commands for macro users
     if (not TankAlert_Settings or not TankAlert_Settings.global) then
-        TankAlert_LogError("SlashCommand", "Settings not initialized. Wait for addon to fully load.")
+        TankAlert_LogError("SlashCommand", "Settings not initialized.")
         return
     end
     
     local classSettings = TankAlert_Settings[TankAlert_PlayerClass]
 
     if (cmd == "toggle") then
-        local abilityKey = nil
-        
-        if (arg == "cc") then
+         -- (Legacy toggle support kept for macros)
+         if (arg == "cc") then
             TankAlert_Settings.global.announceCC = not TankAlert_Settings.global.announceCC
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r CC alerts (Stun/Fear): " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
-            return
-        elseif (arg == "disarm") then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r CC alerts: " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
+         elseif (arg == "disarm") then
             TankAlert_Settings.global.announceDisarm = not TankAlert_Settings.global.announceDisarm
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Disarm alerts: " .. (TankAlert_Settings.global.announceDisarm and "ON" or "OFF"))
-            return
-        elseif (arg == "whisper") then
+         elseif (arg == "whisper") then
             TankAlert_Settings.global.announceThreatWhisper = not TankAlert_Settings.global.announceThreatWhisper
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Threat Whispers: " .. (TankAlert_Settings.global.announceThreatWhisper and "ON" or "OFF"))
-            return
-        elseif (arg == "tankonly") then
-            TankAlert_Settings.global.onlyTankWhispers = not TankAlert_Settings.global.onlyTankWhispers
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Only Whisper if Tanking: " .. (TankAlert_Settings.global.onlyTankWhispers and "ON" or "OFF"))
-            return
-        end
-        
-        if (classSettings and classSettings.abilities) then
-            if (arg == "taunt") then abilityKey = "Taunt"
-            elseif (arg == "sunder") then abilityKey = "SunderArmor"
-            elseif (arg == "shieldslam") then abilityKey = "ShieldSlam"
-            elseif (arg == "revenge") then abilityKey = "Revenge"
-            elseif (arg == "mocking" or arg == "mockingblow") then abilityKey = "MockingBlow"
-            elseif (arg == "growl") then abilityKey = "Growl"
-            end
-        end
-
-        if (abilityKey and classSettings.abilities[abilityKey] ~= nil) then
-            classSettings.abilities[abilityKey] = not classSettings.abilities[abilityKey]
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r " .. abilityKey .. " alerts: " .. (classSettings.abilities[abilityKey] and "ON" or "OFF"))
-        else
-            TankAlert_Settings.global.enabled = not TankAlert_Settings.global.enabled
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r." or "|cffFF0000DISABLED|r."))
-        end
-        
-    elseif (cmd == "force") then
-        if (arg == "party") then
-            TankAlert_Settings.global.forceChannel = "party"
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Forcing all announcements to |cffFFFFFFPARTY|r chat.")
-        elseif (arg == "raid") then
-            TankAlert_Settings.global.forceChannel = "raid"
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Forcing all announcements to |cffFFFFFFRAID|r chat.")
-        elseif (arg == "say") then
-            TankAlert_Settings.global.forceChannel = "say"
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Forcing all announcements to |cffFFFFFFSAY|r.")
-        elseif (arg == "auto") then
-            TankAlert_Settings.global.forceChannel = "auto"
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements set to |cffFFFFFFAUTO|r-detect channel.")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Unknown channel. Use: |cffFFFFFF/ta force [auto | party | raid | say]|r")
-        end
-
-    elseif (cmd == "set") then
-        local key, val
-        local spacePos_set = _strfind(arg, " ")
-        if (spacePos_set) then
-            key = _strsub(arg, 1, spacePos_set - 1)
-            val = _strsub(arg, spacePos_set + 1)
-        end
-
-        if (key == "threshold") then
-            local num = _tonumber(val)
-            if (num and num >= 50 and num <= 100) then
-                TankAlert_Settings.global.threatWhisperThreshold = num
-                DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Threat whisper threshold set to |cffFFFFFF" .. num .. "%|r.")
-            else
-                DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Invalid threshold. Must be a number between 50 and 100.")
-            end
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Unknown command. Try: |cffFFFFFF/ta set threshold 90|r")
-        end
-
+         else
+            if (TankAlert_GUI.frame) then TankAlert_GUI.frame:Show() end
+         end
     elseif (cmd == "on") then
         TankAlert_Settings.global.enabled = true
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cff00FF00ENABLED|r.")
-        
-    elseif (cmd == "off") or (cmd == "stop") then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Enabled.")
+    elseif (cmd == "off") then
         TankAlert_Settings.global.enabled = false
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Announcements are now |cffFF0000DISABLED|r.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Disabled.")
     else
-        -- --- Dynamic Status Menu (v1.6) ---
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [TankAlert Status] ------|r")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Class:|r |cffFFFFFF" .. TankAlert_PlayerClass .. "|r")
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Master Toggle:|r " .. (TankAlert_Settings.global.enabled and "|cff00FF00ENABLED|r" or "|cffFF0000DISABLED|r"))
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Force Channel:|r |cffFFFFFF" .. _strupper(TankAlert_Settings.global.forceChannel) .. "|r")
-        
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Global Alerts:|r")
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFCC (Stun/Fear):|r " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFDisarm:|r " .. (TankAlert_Settings.global.announceDisarm and "ON" or "OFF"))
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFFThreat Whispers:|r " .. (TankAlert_Settings.global.announceThreatWhisper and "ON" or "OFF") .. " (at " .. TankAlert_Settings.global.threatWhisperThreshold .. "%)")
-        DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF  - Only if I am Tank:|r " .. (TankAlert_Settings.global.onlyTankWhispers and "ON" or "OFF"))
-
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00Tracked Abilities:|r")
-        if (classSettings and classSettings.abilities) then
-            for ability, enabled in pairs(classSettings.abilities) do
-                DEFAULT_CHAT_FRAME:AddMessage("  |cffFFFFFF" .. ability .. ":|r " .. (enabled and "ON" or "OFF"))
-            end
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("  |cffFF0000No abilities configured for your class.|r")
+        -- If unknown command, show GUI
+        if (TankAlert_GUI.frame) then
+            TankAlert_GUI.frame:Show()
         end
-        
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00------ [Commands] ------|r")
-        DEFAULT_CHAT_FRAME:AddMessage("/ta [on | off | toggle] - Master switch.")
-        DEFAULT_CHAT_FRAME:AddMessage("/ta force [auto | party | raid | say]")
-        DEFAULT_CHAT_FRAME:AddMessage("/ta set threshold [50-100]")
-        
-        -- FIXED: Added "tankonly" to the help string so users know it exists
-        local toggleHelp = "/ta toggle [cc | disarm | whisper | tankonly | "
-        if (classSettings and classSettings.abilities) then
-            for ability, enabled in pairs(classSettings.abilities) do
-                toggleHelp = toggleHelp .. _strlower(ability) .. " | "
-            end
-            toggleHelp = _strsub(toggleHelp, 1, -4)
-        end
-        toggleHelp = toggleHelp .. "]"
-        DEFAULT_CHAT_FRAME:AddMessage(toggleHelp)
     end
 end
 
