@@ -2,17 +2,18 @@
 
 A lightweight, configurable addon for Vanilla (1.12) clients that automatically announces failed tanking abilities and critical loss-of-control events.
 
+**Current Version:** v1.7
+
 ## Features
 
 * **Multi-Class Support:** Automatically detects your class (currently **Warrior** and **Druid**) and loads the correct abilities and settings.
+* **NEW! Settings GUI:** A fully functional, drag-and-drop configuration window. Type `/ta` to open.
 * **Specific Failure Alerts:** Announces the *exact* failure type (e.g., `RESISTED`, `DODGED`, `PARRIED`, `MISSED`) for maximum clarity.
-* **Smart CC & Disarm Alerts:** Proactively announces if you are STUNNED, FEARED, or DISARMED. Uses smart detection to prevent false-positives and includes an 8-second throttle to prevent spam.
+* **Smart CC & Disarm Alerts:** Proactively announces if you are STUNNED, FEARED, or DISARMED. Uses smart detection and an 8-second throttle to prevent spam.
 * **Smart Announce:** Automatically detects if you are solo, in a party, or in a raid, and sends messages to the correct channel.
-* **Intelligent Raid Logic:** Announces to `/raidwarning` if you are a raid leader or assist. Announces to `/raid` if you are a regular member, keeping raid warnings clean.
-* **Raid Icon Priority:** Automatically includes the target's raid icon (e.g., `[Skull]`) in the message. If no icon is present, it uses the target's name instead.
-* **Fully Configurable:** Use simple slash commands to toggle the addon on/off, change the output channel, or disable alerts for specific abilities.
-* **Persistent:** All your settings are saved between sessions.
-* **Extremely Lightweight:** No UI, no setup. Just install and go.
+* **Intelligent Raid Logic:** Announces to `/raidwarning` if you are a raid leader or assist. Announces to `/raid` if you are a regular member.
+* **Threat Whispers (Spy Mode):** Integrates with **TWThreat** to whisper DPS/Healers who are close to pulling aggro (default >90%).
+* **Extremely Lightweight:** No XML, single Lua file, zero dependencies.
 
 ## Tracked Abilities
 
@@ -27,48 +28,36 @@ A lightweight, configurable addon for Vanilla (1.12) clients that automatically 
 * **Growl** (RESISTED)
 *(More Druid abilities will be added in future versions!)*
 
-## Global Alerts (All Classes)
-* **Loss of Control (Stun/Fear):** Alerts when you try to use an ability while Stunned or Feared.
-* **Disarm:** Intelligently alerts when you try to use an ability while Disarmed (and confirms you have a weapon equipped).
+## Configuration (New in v1.7)
 
-## New in v1.6: Threat Whispers (TWThreat Integration)
-TankAlert now integrates with **TWThreat** to help you manage group threat without looking at a meter.
+**Type `/ta` to open the Settings Window.**
 
-* **Smart Whispers:** If a DPS or Healer exceeds the threat threshold (default 90%) on your target, TankAlert will send them a private whisper warning them to watch their threat.
-* **Passive "Spy" Mode:** This feature requires at least one person in your party/raid to be running the **TWThreat** addon. TankAlert listens to their broadcasts invisibly.
-* **Tank Protection:** The addon intelligently detects who the current tank is and will *not* whisper them, even if they are high on threat.
-* **Anti-Spam Throttle:** Whispers are throttled to occur at most once every 15 seconds per player.
+From the GUI, you can:
+* **Toggle Addon:** Enable/Disable the master switch.
+* **Force Channel:** Override smart logic (e.g., force output to `SAY` or `PARTY`).
+* **Toggle Abilities:** Individually enable/disable alerts for specific spells (e.g., turn off Sunder alerts but keep Taunt).
+* **Configure Threat Whispers:**
+    * **Enable/Disable:** Turn the module on or off.
+    * **Tank Only Mode:** Ensure you only send warnings if *you* are the active tank.
+    * **Threshold:** Set the threat percentage (50%-100%) for warnings.
 
-### Threat Commands
-* `/ta toggle whisper` - Enable/Disable the threat whisper system.
-* `/ta toggle tankonly` - **(Smart Mode)** If enabled, TankAlert will ONLY send whispers if **YOU** are currently the tank. This prevents 5 people running TankAlert from spamming the poor mage at the same time.
-* `/ta set threshold 90` - Sets the threat percentage at which to whisper (Range: 50-100).
+*Note: Old slash commands are still supported for macro usage.*
 
-## Slash Commands
+## Threat Whispers (TWThreat Integration)
 
-All settings are controlled via the `/ta` command.
-
-* `/ta`
-    Displays the current status of the addon and a list of all commands *specific to your class*.
-
-* `/ta on` | `off` | `toggle`
-    The master switch. Enables or disables all announcements.
-
-* `/ta force [auto | party | raid | say]`
-    Overrides the channel logic. For example, `/ta force party` will make all announcements go to party chat, even if you are in a raid. Use `/ta force auto` to return to normal.
-
-* `/ta toggle [ability | cc | disarm]`
-    Toggles announcements for a specific ability (e.g., `sunder`) or a global alert (e.g., `cc` or `disarm`).
+TankAlert listens to `TWThreat` addon broadcasts invisibly.
+* **Smart Whispers:** Warns DPS/Healers exceeding the threat threshold.
+* **Tank Protection:** Ignores the current tank (you won't whisper the Main Tank).
+* **Anti-Spam:** Limits whispers to once every 15 seconds per player.
 
 ## Installation
 
 1.  Go to the [Releases page](https://github.com/Azuriel-stream/TankAlert/releases) of this repository.
-2.  Download the latest `.zip` file (e.g., `TankAlert-v1.6.zip`).
+2.  Download the latest `.zip` file (e.g., `TankAlert-v1.7.zip`).
 3.  Extract the folder inside the `.zip` file.
 4.  Rename the folder inside to **`TankAlert`** (if it isn't already).
 5.  Place the `TankAlert` folder into your `World of Warcraft\Interface\AddOns\` directory.
-6.  Launch the game, go to "AddOns" on your character selection screen, and make sure **"TankAlert"** is enabled.
+6.  Launch the game.
 
 ## Compatibility
-
-This addon is built for the 1.12 client API and is extremely lightweight. It does not modify any UI elements.
+Built strictly for the **1.12 client API**. Does not rely on modern WoW functions.
