@@ -1,3 +1,4 @@
+-- TankAlert (v1.8.1)
 -- Create our main frame
 local tankAlert_Frame = CreateFrame("Frame")
 
@@ -5,11 +6,14 @@ local tankAlert_Frame = CreateFrame("Frame")
 local TankAlert_Last_CC_Alert_Time = 0
 local TankAlert_Last_Disarm_Alert_Time = 0
 
+-- --- v1.8.1 Combat Tracking ---
+local TankAlert_CombatStartTime = 0
+
 -- --- v1.6 Threat Data ---
 local TankAlert_CurrentThreat = {}
 local TankAlert_WhisperThrottle = {}
 local TankAlert_PlayerClass = nil -- Localized for safety
-local TankAlert_Version = "1.8"
+local TankAlert_Version = "1.8.1"
 
 -- --- 1.12-Safe String Functions (v1.6.3) ---
 local _strlower = string.lower
@@ -50,14 +54,12 @@ local TankAlert_Defaults = {
             Growl = true,
         }
     },
-    -- v1.8: Added Paladin Defaults
     PALADIN = {
         abilities = {
             HandOfReckoning = true,
             HolyStrike = true,
         }
     },
-    -- v1.8: Added Shaman Defaults
     SHAMAN = {
         abilities = {
             EarthshakerSlam = true, -- The Main Taunt
@@ -99,13 +101,10 @@ local TankAlert_AbilityDisplayNames = {
 }
 
 -- Explicit order to ensure consistent layout (Col 1 then Col 2)
--- UPDATED: Sunder Armor moved to Col 1 (Index 1), Taunt moved to Col 2 (Index 4)
 local TankAlert_AbilityOrder = {
     WARRIOR = {"SunderArmor", "Revenge", "ShieldSlam", "Taunt", "MockingBlow"},
     DRUID = {"Growl"},
-    -- v1.8: Taunt first, then Stun, then DPS
     PALADIN = {"HandOfReckoning", "HolyStrike"},
-    -- v1.8: Earthshaker Slam is the Priority 1 Taunt
     SHAMAN = {"EarthshakerSlam", "EarthShock", "LightningStrike", "Stormstrike", "FrostShock"}
 }
 
@@ -270,7 +269,6 @@ local function TankAlert_InitGUI()
         TankAlert_GUI.widgets.chanRaid:SetChecked(selected == "raid")
     end
     
-    -- FIXED: 2x2 Grid Layout for space efficiency
     TankAlert_GUI.widgets.chanAuto = GUI_CreateCheckbox(f, x, y, "Auto", "Smart detection (Raid/Party).", function() UpdateChannels("auto") end)
     TankAlert_GUI.widgets.chanSay = GUI_CreateCheckbox(f, x+150, y, "Say", "Force Say.", function() UpdateChannels("say") end)
     
@@ -296,22 +294,17 @@ local function TankAlert_InitGUI()
         local count = 0
         
         for _, abilityKey in ipairs(abilityOrder) do
-            -- Ensure ability exists in settings
             if (classSettings.abilities[abilityKey] ~= nil) then
                 local displayName = TankAlert_AbilityDisplayNames[abilityKey] or abilityKey
-                
-                -- FIX: Create a local copy of abilityKey for the closure to capture safely
                 local savedKey = abilityKey 
 
                 GUI_CreateCheckbox(f, x + (col * 150), y, displayName, "Track " .. displayName, function(checked)
-                     -- Use 'savedKey' instead of 'abilityKey'
                      classSettings.abilities[savedKey] = checked
                 end):SetChecked(classSettings.abilities[abilityKey])
                 
                 y = y - 25
                 count = count + 1
                 
-                -- Wrap after 3 items to ensure "Sunder Armor" (Index 4) hits Col 2
                 if (count == 3) then
                      y = startY
                      col = col + 1
@@ -397,10 +390,8 @@ local TankAlert_AbilityKeyLookup = {
     ["Revenge"] = "Revenge",
     ["Mocking Blow"] = "MockingBlow",
     ["Growl"] = "Growl",
-    -- v1.8 Paladin
     ["Hand of Reckoning"] = "HandOfReckoning",
     ["Holy Strike"] = "HolyStrike",
-    -- v1.8 Shaman
     ["Earthshaker Slam"] = "EarthshakerSlam",
     ["Earth Shock"] = "EarthShock",
     ["Frost Shock"] = "FrostShock",
@@ -408,7 +399,6 @@ local TankAlert_AbilityKeyLookup = {
     ["Stormstrike"] = "Stormstrike",
 }
 
--- --- Helper Function to "normalize" ability names (v1.4) ---
 function TankAlert_GetAbilityKey(name)
     return TankAlert_AbilityKeyLookup[name]
 end
@@ -425,28 +415,19 @@ local TankAlert_AbilityPatterns = {
     DRUID = {
         {name = "Growl", pattern = "Growl", failure = "resisted", extract = "resisted by (.+)"},
     },
-    -- v1.8 Hybrid Support
     PALADIN = {
-        -- Taunt (Turtle WoW Specific)
         {name = "Hand of Reckoning", pattern = "Hand of Reckoning", failure = "resisted", extract = "resisted by (.+)"},
-        -- Primary Threat Ability (Melee)
         {name = "Holy Strike", pattern = "Holy Strike", failures = {"dodged", "parried", "missed"}},
     },
     SHAMAN = {
-        -- Primary Taunt (Turtle WoW)
         {name = "Earthshaker Slam", pattern = "Earthshaker Slam", failure = "resisted", extract = "resisted by (.+)"},
-        -- High Threat Spell
         {name = "Earth Shock", pattern = "Earth Shock", failure = "resisted", extract = "resisted by (.+)"},
-        -- Pull / Kiting
         {name = "Frost Shock", pattern = "Frost Shock", failure = "resisted", extract = "resisted by (.+)"},
-        -- Turtle WoW Custom Ability (Physical School -> Melee Failures)
         {name = "Lightning Strike", pattern = "Lightning Strike", failures = {"dodged", "parried", "missed"}},
-        -- Enhancement Talent (Melee Failures)
         {name = "Stormstrike", pattern = "Stormstrike", failures = {"dodged", "parried", "missed"}}
     }
 }
 
--- --- Helper Function to detect ability failures (v1.6.3) ---
 function TankAlert_DetectAbilityFailure(msg, classKey)
     local abilityName = nil
     local targetName = nil
@@ -500,6 +481,24 @@ local function TankAlert_LogWarning(functionName, warningMsg)
     DEFAULT_CHAT_FRAME:AddMessage("|cffFF8800[TankAlert Warning]|r " .. functionName .. ": " .. (warningMsg or "Unknown warning"))
 end
 
+-- --- Helper: Get Highest Threat Non-Tank (v1.8.1) ---
+-- Returns: maxThreat (number), hasData (boolean)
+local function TankAlert_GetMaxNonTankThreat()
+    local maxP = 0
+    local hasData = false
+    
+    for name, data in pairs(TankAlert_CurrentThreat) do
+        hasData = true
+        -- Check if player is NOT a tank
+        if (not data.isTank) then
+            if (data.percent and data.percent > maxP) then
+                maxP = data.percent
+            end
+        end
+    end
+    return maxP, hasData
+end
+
 -- --- Helper Function to parse the TWTv4 string (v1.6) ---
 function TankAlert_ParseTWTMessage(msg)
     if (not msg or type(msg) ~= "string") then
@@ -516,7 +515,6 @@ function TankAlert_ParseTWTMessage(msg)
     
     local playerIndex = 1
     local playerString = ""
-    local parseCount = 0
     
     while (playerString) do
         local splitStart, splitEnd = _strfind(dataString, ";", playerIndex)
@@ -560,7 +558,6 @@ function TankAlert_ParseTWTMessage(msg)
                     percent = percent,
                     isMelee = (d5 == "1"),
                 }
-                parseCount = parseCount + 1
             end
         end
         
@@ -591,9 +588,6 @@ threatCheckFrame:SetScript("OnUpdate", function()
         -- If "Only Tank Whispers" is enabled, we check if WE are the tank.
         if (TankAlert_Settings.global.onlyTankWhispers) then
             local myData = TankAlert_CurrentThreat[myName]
-            
-            -- If I am not in the threat list, or I am not marked as the tank (isTank != true),
-            -- then I should NOT send whispers. I leave that to the Main Tank.
             if (not myData or not myData.isTank) then
                 return
             end
@@ -627,12 +621,9 @@ tankAlert_Frame:SetScript("OnEvent", function()
     local arg2 = arg2
     
     if event == "PLAYER_ENTERING_WORLD" then
-        
         _, TankAlert_PlayerClass = UnitClass("player")
         
-        -- NEW: Check for supported class (Class Gate)
-        -- If the player's class is not in our AbilityPatterns table (e.g., ROGUE, MAGE),
-        -- we disable the addon immediately to save resources and avoid confusion.
+        -- Class Gate
         if (not TankAlert_AbilityPatterns[TankAlert_PlayerClass]) then
              DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r v" .. TankAlert_Version .. " loaded but suspended (Class " .. TankAlert_PlayerClass .. " not supported).")
              tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -677,12 +668,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
 
         TankAlert_Last_CC_Alert_Time = 0
         TankAlert_Last_Disarm_Alert_Time = 0
+        TankAlert_CombatStartTime = 0
 
-        local status = "|cffFF0000DISABLED|r"
-        if (TankAlert_Settings.global.enabled) then
-            status = "|cff00FF00ENABLED|r"
-        end
-        
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r v" .. TankAlert_Version .. " active. Type |cffFFFFFF/ta|r to open settings.")
         
         tankAlert_Frame:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -693,6 +680,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
     end
 
     if event == "PLAYER_REGEN_DISABLED" then
+        TankAlert_CombatStartTime = GetTime() -- v1.8.1 Start Timer
         threatCheckTimer = 0
         threatCheckFrame:Show()
         for k in pairs(TankAlert_WhisperThrottle) do
@@ -700,6 +688,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
         end
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
+        TankAlert_CombatStartTime = 0 -- v1.8.1 Reset Timer
         threatCheckFrame:Hide()
         for k in pairs(TankAlert_CurrentThreat) do
             TankAlert_CurrentThreat[k] = nil
@@ -711,12 +700,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
     if event == "CHAT_MSG_ADDON" then
         local prefix = arg1
         local msg = arg2
-        local sender = arg4
         
-        if (not prefix or not msg) then
-            TankAlert_LogWarning("CHAT_MSG_ADDON", "Null prefix or message received")
-            return
-        end
+        if (not prefix or not msg) then return end
         
         if (_strfind(prefix, "TWT")) then
             if (_strfind(msg, "TWTv4=")) then
@@ -751,7 +736,6 @@ tankAlert_Frame:SetScript("OnEvent", function()
                         break
                     end
                 end
-                
                 if (not isInBearForm) then
                     alertType = nil
                 end
@@ -828,18 +812,12 @@ tankAlert_Frame:SetScript("OnEvent", function()
         local msg = arg1
         if (not msg) then return end
 
-        if (not TankAlert_PlayerClass) then
-            TankAlert_LogError("CHAT_MSG_SPELL_SELF_DAMAGE", "TankAlert_PlayerClass not initialized")
-            return
-        end
+        if (not TankAlert_PlayerClass) then return end
 
         local abilityName, failureType, targetName = TankAlert_DetectAbilityFailure(msg, TankAlert_PlayerClass)
 
         if (abilityName and failureType) then
-            if (not TankAlert_Settings or not TankAlert_Settings[TankAlert_PlayerClass]) then
-                TankAlert_LogError("CHAT_MSG_SPELL_SELF_DAMAGE", "Settings for class " .. TankAlert_PlayerClass .. " not found")
-                return
-            end
+            if (not TankAlert_Settings or not TankAlert_Settings[TankAlert_PlayerClass]) then return end
             
             local abilityKey = TankAlert_GetAbilityKey(abilityName)
             if (abilityKey == nil or TankAlert_Settings[TankAlert_PlayerClass].abilities[abilityKey] == false) then
@@ -869,24 +847,62 @@ tankAlert_Frame:SetScript("OnEvent", function()
             if (messageBody ~= "") then
                 local channel = "SAY"
                 local messagePrefix = ""
+                local forcedChannel = TankAlert_Settings.global.forceChannel
                 
-                if (TankAlert_Settings.global.forceChannel ~= "auto") then
-                    channel = _strupper(TankAlert_Settings.global.forceChannel)
-                    if (channel == "RAID_WARNING") then
-                         messagePrefix = UnitName("player") .. "'s "
+                -- Determine Context
+                local inRaid = (GetNumRaidMembers() > 0)
+                local inParty = (GetNumPartyMembers() > 0)
+                local isAssist = TankAlert_IsRaidAssist()
+                
+                -- v1.8.1: Silence Check
+                if (forcedChannel == "auto" and (inRaid or inParty)) then
+                    local maxThreat, hasData = TankAlert_GetMaxNonTankThreat()
+                    -- If we have data, but nobody is above 50%, stay silent.
+                    -- Note: This overrides even the "0-10s" rule to prevent spam on easy pulls.
+                    if (hasData and maxThreat < 50) then
+                        return 
                     end
+                end
+
+                -- Default Logic
+                if (forcedChannel ~= "auto") then
+                    channel = _strupper(forcedChannel)
                 else
-                    if (GetNumRaidMembers() > 0) then
-                        if (TankAlert_IsRaidAssist()) then
+                    if (inRaid) then
+                        -- v1.8.1 Logic: Smart Raid Warning
+                        local useRW = false
+                        local combatDuration = 0
+                        local maxThreat, hasData = TankAlert_GetMaxNonTankThreat() -- Get updated value
+                        
+                        -- Calculate combat duration if currently in combat
+                        if (TankAlert_CombatStartTime > 0) then
+                            combatDuration = GetTime() - TankAlert_CombatStartTime
+                        end
+
+                        -- Rule 1: First 10 seconds of combat
+                        if (combatDuration <= 10) then
+                            useRW = true
+                        -- Rule 2: After 10 seconds, only if High Threat (80%+) detected
+                        elseif (maxThreat >= 80) then
+                            useRW = true
+                        end
+                        
+                        -- Apply RW if conditions met AND we have permission
+                        if (useRW and isAssist) then
                             channel = "RAID_WARNING"
-                            messagePrefix = UnitName("player") .. "'s "
                         else
                             channel = "RAID"
                         end
-                    elseif (GetNumPartyMembers() > 0) then
+                    elseif (inParty) then
                         channel = "PARTY"
                     end
                 end
+                
+                -- Prefix Formatting for RW
+                if (channel == "RAID_WARNING") then
+                     messagePrefix = UnitName("player") .. "'s "
+                end
+                
                 SendChatMessage(messagePrefix .. messageBody, channel)
             end
         end
@@ -912,7 +928,7 @@ SlashCmdList["TANKALERT"] = function(msg)
         cmd = rawmsg
     end
     
-    -- NEW: Check class support (Class Gate)
+    -- Class Gate
     if (not TankAlert_AbilityPatterns[TankAlert_PlayerClass]) then
          DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r Class " .. (TankAlert_PlayerClass or "Unknown") .. " is not supported.")
          return
@@ -922,22 +938,13 @@ SlashCmdList["TANKALERT"] = function(msg)
     if (cmd == "") then
         if (TankAlert_GUI.frame) then
             TankAlert_GUI.frame:Show()
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[TankAlert]|r GUI not initialized.")
         end
         return
     end
 
-    -- Keep existing commands for macro users
-    if (not TankAlert_Settings or not TankAlert_Settings.global) then
-        TankAlert_LogError("SlashCommand", "Settings not initialized.")
-        return
-    end
-    
-    local classSettings = TankAlert_Settings[TankAlert_PlayerClass]
+    if (not TankAlert_Settings or not TankAlert_Settings.global) then return end
 
     if (cmd == "toggle") then
-         -- (Legacy toggle support kept for macros)
          if (arg == "cc") then
             TankAlert_Settings.global.announceCC = not TankAlert_Settings.global.announceCC
             DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r CC alerts: " .. (TankAlert_Settings.global.announceCC and "ON" or "OFF"))
@@ -956,13 +963,45 @@ SlashCmdList["TANKALERT"] = function(msg)
     elseif (cmd == "off") then
         TankAlert_Settings.global.enabled = false
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Disabled.")
+    
+    -- v1.8.1 DEBUGGING TOOL
+    elseif (cmd == "debug") then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffFFA500[TankAlert Debug]|r Dumping Threat Table:")
+        local count = 0
+        
+        -- Use the helper to check global state
+        local maxThreat, hasData = TankAlert_GetMaxNonTankThreat()
+
+        for name, data in pairs(TankAlert_CurrentThreat) do
+            count = count + 1
+            local role = data.isTank and "TANK" or "DPS/HEAL"
+            local color = "|cffFFFFFF" -- White
+            
+            if (not data.isTank and data.percent >= 80) then
+                color = "|cffFF0000" -- Red
+            end
+
+            DEFAULT_CHAT_FRAME:AddMessage(string.format(" - %s%s|r (%s): %d%% threat", color, name, role, data.percent))
+        end
+        
+        if (count == 0) then
+            DEFAULT_CHAT_FRAME:AddMessage(" - Table is empty. (Are you receiving TWTv4 syncs?)")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("Total entries: " .. count)
+            if (maxThreat < 50) then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff888888[SILENCED] Max non-tank threat ("..maxThreat.."%) < 50%. Alerts suppressed.|r")
+            elseif (maxThreat >= 80) then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[!] High Threat ("..maxThreat.."%) detected! (RW condition met)|r")
+            else
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[OK] Standard Threat ("..maxThreat.."%). Using normal Raid Chat.|r")
+            end
+        end
+
     else
-        -- If unknown command, show GUI
         if (TankAlert_GUI.frame) then
             TankAlert_GUI.frame:Show()
         end
     end
 end
 
--- Create the /ta slash command
 SLASH_TANKALERT1 = "/ta"
