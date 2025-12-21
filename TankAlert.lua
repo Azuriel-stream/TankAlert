@@ -1,4 +1,4 @@
--- TankAlert (v1.9)
+-- TankAlert (v1.8.1)
 -- Create our main frame
 local tankAlert_Frame = CreateFrame("Frame")
 
@@ -6,14 +6,14 @@ local tankAlert_Frame = CreateFrame("Frame")
 local TankAlert_Last_CC_Alert_Time = 0
 local TankAlert_Last_Disarm_Alert_Time = 0
 
--- --- v1.9 Combat Tracking ---
+-- --- v1.8.1 Combat Tracking ---
 local TankAlert_CombatStartTime = 0
 
 -- --- v1.6 Threat Data ---
 local TankAlert_CurrentThreat = {}
 local TankAlert_WhisperThrottle = {}
 local TankAlert_PlayerClass = nil -- Localized for safety
-local TankAlert_Version = "1.9"
+local TankAlert_Version = "1.8.1"
 
 -- --- 1.12-Safe String Functions (v1.6.3) ---
 local _strlower = string.lower
@@ -481,16 +481,22 @@ local function TankAlert_LogWarning(functionName, warningMsg)
     DEFAULT_CHAT_FRAME:AddMessage("|cffFF8800[TankAlert Warning]|r " .. functionName .. ": " .. (warningMsg or "Unknown warning"))
 end
 
--- --- Helper: Check for High Threat Non-Tanks (v1.9) ---
-local function TankAlert_IsHighThreatPresent()
-    -- Iterate through the current threat table
+-- --- Helper: Get Highest Threat Non-Tank (v1.8.1) ---
+-- Returns: maxThreat (number), hasData (boolean)
+local function TankAlert_GetMaxNonTankThreat()
+    local maxP = 0
+    local hasData = false
+    
     for name, data in pairs(TankAlert_CurrentThreat) do
-        -- Check if player is NOT a tank and has threat >= 80%
-        if (data and data.percent and data.percent >= 80 and not data.isTank) then
-            return true
+        hasData = true
+        -- Check if player is NOT a tank
+        if (not data.isTank) then
+            if (data.percent and data.percent > maxP) then
+                maxP = data.percent
+            end
         end
     end
-    return false
+    return maxP, hasData
 end
 
 -- --- Helper Function to parse the TWTv4 string (v1.6) ---
@@ -674,7 +680,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
     end
 
     if event == "PLAYER_REGEN_DISABLED" then
-        TankAlert_CombatStartTime = GetTime() -- v1.9 Start Timer
+        TankAlert_CombatStartTime = GetTime() -- v1.8.1 Start Timer
         threatCheckTimer = 0
         threatCheckFrame:Show()
         for k in pairs(TankAlert_WhisperThrottle) do
@@ -682,7 +688,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
         end
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
-        TankAlert_CombatStartTime = 0 -- v1.9 Reset Timer
+        TankAlert_CombatStartTime = 0 -- v1.8.1 Reset Timer
         threatCheckFrame:Hide()
         for k in pairs(TankAlert_CurrentThreat) do
             TankAlert_CurrentThreat[k] = nil
@@ -848,14 +854,25 @@ tankAlert_Frame:SetScript("OnEvent", function()
                 local inParty = (GetNumPartyMembers() > 0)
                 local isAssist = TankAlert_IsRaidAssist()
                 
+                -- v1.8.1: Silence Check
+                if (forcedChannel == "auto" and (inRaid or inParty)) then
+                    local maxThreat, hasData = TankAlert_GetMaxNonTankThreat()
+                    -- If we have data, but nobody is above 50%, stay silent.
+                    -- Note: This overrides even the "0-10s" rule to prevent spam on easy pulls.
+                    if (hasData and maxThreat < 50) then
+                        return 
+                    end
+                end
+
                 -- Default Logic
                 if (forcedChannel ~= "auto") then
                     channel = _strupper(forcedChannel)
                 else
                     if (inRaid) then
-                        -- v1.9 Logic: Smart Raid Warning
+                        -- v1.8.1 Logic: Smart Raid Warning
                         local useRW = false
                         local combatDuration = 0
+                        local maxThreat, hasData = TankAlert_GetMaxNonTankThreat() -- Get updated value
                         
                         -- Calculate combat duration if currently in combat
                         if (TankAlert_CombatStartTime > 0) then
@@ -865,8 +882,8 @@ tankAlert_Frame:SetScript("OnEvent", function()
                         -- Rule 1: First 10 seconds of combat
                         if (combatDuration <= 10) then
                             useRW = true
-                        -- Rule 2: After 10 seconds, only if High Threat detected
-                        elseif (TankAlert_IsHighThreatPresent()) then
+                        -- Rule 2: After 10 seconds, only if High Threat (80%+) detected
+                        elseif (maxThreat >= 80) then
                             useRW = true
                         end
                         
@@ -947,12 +964,14 @@ SlashCmdList["TANKALERT"] = function(msg)
         TankAlert_Settings.global.enabled = false
         DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[TankAlert]|r Disabled.")
     
-    -- v1.9 DEBUGGING TOOL
+    -- v1.8.1 DEBUGGING TOOL
     elseif (cmd == "debug") then
         DEFAULT_CHAT_FRAME:AddMessage("|cffFFA500[TankAlert Debug]|r Dumping Threat Table:")
         local count = 0
-        local highThreatFound = false
         
+        -- Use the helper to check global state
+        local maxThreat, hasData = TankAlert_GetMaxNonTankThreat()
+
         for name, data in pairs(TankAlert_CurrentThreat) do
             count = count + 1
             local role = data.isTank and "TANK" or "DPS/HEAL"
@@ -960,7 +979,6 @@ SlashCmdList["TANKALERT"] = function(msg)
             
             if (not data.isTank and data.percent >= 80) then
                 color = "|cffFF0000" -- Red
-                highThreatFound = true
             end
 
             DEFAULT_CHAT_FRAME:AddMessage(string.format(" - %s%s|r (%s): %d%% threat", color, name, role, data.percent))
@@ -970,10 +988,12 @@ SlashCmdList["TANKALERT"] = function(msg)
             DEFAULT_CHAT_FRAME:AddMessage(" - Table is empty. (Are you receiving TWTv4 syncs?)")
         else
             DEFAULT_CHAT_FRAME:AddMessage("Total entries: " .. count)
-            if (highThreatFound) then
-                DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[!] High Threat detected! (RW condition met)|r")
+            if (maxThreat < 50) then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff888888[SILENCED] Max non-tank threat ("..maxThreat.."%) < 50%. Alerts suppressed.|r")
+            elseif (maxThreat >= 80) then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffFF0000[!] High Threat ("..maxThreat.."%) detected! (RW condition met)|r")
             else
-                DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[OK] No High Threat detected.|r")
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[OK] Standard Threat ("..maxThreat.."%). Using normal Raid Chat.|r")
             end
         end
 

@@ -2,14 +2,15 @@
 
 A lightweight, configurable addon for Vanilla (1.12) clients that automatically announces failed tanking abilities and critical loss-of-control events.
 
-**Current Version:** v1.9
+**Current Version:** v1.8.1
 
 ## Features
 
 * **Multi-Class Support:** Supports **Warrior**, **Druid**, **Paladin**, and **Shaman**.
-* **Smart Announce (v1.9):**
-    * **Early Combat (0-10s):** Fails always announced via **Raid Warning** (if promoted) to establish initial aggro.
-    * **Mid Combat (>10s):** Fails only announced via Raid Warning if a **High Threat (80%+)** DPS/Healer is detected. Otherwise, uses standard Raid chat.
+* **Smart Announce (v1.8.1):**
+    * **Silence Filter:** If no non-tank player is above **50% threat**, the addon stays silent to prevent spam.
+    * **Early Combat (0-10s):** Fails announced via **Raid Warning** (if promoted) to establish initial aggro.
+    * **Mid Combat (>10s):** Fails only announced via Raid Warning if a **High Threat (80%+)** player is detected. Otherwise, uses standard Raid chat.
 * **Threat Whispers (Spy Mode):** Integrates with **TWThreat** to whisper DPS/Healers who are close to pulling aggro.
 * **Settings GUI:** A fully functional, drag-and-drop configuration window (`/ta`).
 * **Specific Failure Alerts:** Announces the *exact* failure type (e.g., `RESISTED`, `DODGED`, `PARRIED`, `MISSED`).
