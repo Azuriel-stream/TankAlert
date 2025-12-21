@@ -2,16 +2,18 @@
 
 A lightweight, configurable addon for Vanilla (1.12) clients that automatically announces failed tanking abilities and critical loss-of-control events.
 
-**Current Version:** v1.8
+**Current Version:** v1.9
 
 ## Features
 
-* **Multi-Class Support:** Supports **Warrior**, **Druid**, **Paladin**, and **Shaman** (New in v1.8!).
+* **Multi-Class Support:** Supports **Warrior**, **Druid**, **Paladin**, and **Shaman**.
+* **Smart Announce (v1.9):**
+    * **Early Combat (0-10s):** Fails always announced via **Raid Warning** (if promoted) to establish initial aggro.
+    * **Mid Combat (>10s):** Fails only announced via Raid Warning if a **High Threat (80%+)** DPS/Healer is detected. Otherwise, uses standard Raid chat.
+* **Threat Whispers (Spy Mode):** Integrates with **TWThreat** to whisper DPS/Healers who are close to pulling aggro.
 * **Settings GUI:** A fully functional, drag-and-drop configuration window (`/ta`).
 * **Specific Failure Alerts:** Announces the *exact* failure type (e.g., `RESISTED`, `DODGED`, `PARRIED`, `MISSED`).
-* **Smart CC & Disarm Alerts:** Proactively announces if you are STUNNED, FEARED, or DISARMED (throttled).
-* **Smart Announce:** Automatically detects if you are solo, in a party, or in a raid, and sends messages to the correct channel.
-* **Threat Whispers (Spy Mode):** Integrates with **TWThreat** to whisper DPS/Healers who are close to pulling aggro.
+* **Smart CC & Disarm Alerts:** Proactively announces if you are STUNNED, FEARED, or DISARMED.
 
 ## Tracked Abilities
 
@@ -25,11 +27,11 @@ A lightweight, configurable addon for Vanilla (1.12) clients that automatically 
 ### Druid
 * **Growl** (RESISTED)
 
-### Paladin (New!)
+### Paladin
 * **Hand of Reckoning** (RESISTED)
 * **Holy Strike** (MISSED, DODGED, PARRIED)
 
-### Shaman (New!)
+### Shaman
 * **Earthshaker Slam** (RESISTED)
 * **Earth Shock** (RESISTED)
 * **Lightning Strike** (MISSED, DODGED, PARRIED)
@@ -44,6 +46,7 @@ From the GUI, you can:
 * **Toggle Addon:** Enable/Disable the master switch.
 * **Toggle Abilities:** Individually enable/disable alerts for specific spells.
 * **Configure Threat Whispers:** Enable "Tank Only Mode" to ensure you only warn DPS if *you* are the current tank.
+* **Debug Threat:** Type `/ta debug` to see what threat data the addon is currently tracking.
 
 ## Installation
 
@@ -52,4 +55,4 @@ From the GUI, you can:
 3.  Launch the game.
 
 ## Compatibility
-Built for **Vanilla 1.12**.
+Built for **Vanilla 1.12** (Turtle WoW compatible).
