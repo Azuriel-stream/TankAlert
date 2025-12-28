@@ -13,7 +13,7 @@ local TankAlert_CombatStartTime = 0
 local TankAlert_CurrentThreat = {}
 local TankAlert_WhisperThrottle = {}
 local TankAlert_PlayerClass = nil -- Localized for safety
-local TankAlert_Version = "1.8.1"
+local TankAlert_Version = "1.8.2"
 
 -- --- 1.12-Safe String Functions (v1.6.3) ---
 local _strlower = string.lower
@@ -718,15 +718,22 @@ tankAlert_Frame:SetScript("OnEvent", function()
         local alertType = nil 
         local alertMessage = nil
 
+        -- v1.8.2: Improved CC Detection
+        -- Uses _strfind to catch variations (e.g., "Fleeing" vs "Feared")
+        -- Adds detection for Incapacitated (Gouge/Poly/Sap) and Confused (Scatter Shot)
         if (TankAlert_Settings.global.announceCC) then
-            if (msg == "Can't do that while stunned") then
+            if (_strfind(msg, "while stunned")) then
                 alertType = "CC"
                 alertMessage = "STUNNED"
-            elseif (msg == "Can't do that while feared") then
+            elseif (_strfind(msg, "while feared") or _strfind(msg, "while fleeing")) then
                 alertType = "CC"
                 alertMessage = "FEARED"
+            elseif (_strfind(msg, "while incapacitated") or _strfind(msg, "while confused")) then
+                alertType = "CC"
+                alertMessage = "INCAPACITATED"
             end
             
+            -- Druid Bear Form Check (prevent alerts if caster form)
             if (alertType == "CC" and TankAlert_PlayerClass == "DRUID") then
                 local isInBearForm = false
                 for i = 1, 6 do 
@@ -742,6 +749,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
         
+        -- Disarm Detection
         if (not alertType and TankAlert_Settings.global.announceDisarm) then
             if (msg == "Must have a Melee Weapon equipped in the main hand") then
                 if (GetInventoryItemLink("player", 16) ~= nil) then
@@ -751,6 +759,7 @@ tankAlert_Frame:SetScript("OnEvent", function()
             end
         end
         
+        -- Announce Logic (Throttled)
         if (alertType) then
             local now = GetTime()
             local throttle = TankAlert_Settings.global.alertThrottle
