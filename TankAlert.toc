@@ -1,8 +1,8 @@
 ## Interface: 11200
 ## Title: TankAlert
-## Notes: Announces failed tank abilities and Threat warnings. (v1.8)
+## Notes: Announces failed tank abilities and Threat warnings. (v1.8.2)
 ## Author: Azuriel
-## Version: 1.8
+## Version: 1.8.2
 ## SavedVariables: TankAlert_Settings
 
 TankAlert.lua
